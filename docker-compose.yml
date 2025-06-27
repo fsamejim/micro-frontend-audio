@@ -2,7 +2,7 @@ services:
   # MySQL Database
   database:
     image: mysql:8.0
-    container_name: audio-translation-db
+    container_name: micro-frontend-audio-db
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: audiotranslationdb
@@ -15,7 +15,7 @@ services:
       - mysql_data:/var/lib/mysql
       - ./backend/src/main/resources/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
-      - audio-translation-network
+      - micro-frontend-audio-network
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       timeout: 20s
@@ -26,7 +26,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: audio-translation-backend
+    container_name: micro-frontend-audio-backend
     restart: unless-stopped
     environment:
       SPRING_PROFILES_ACTIVE: docker
@@ -40,7 +40,7 @@ services:
       database:
         condition: service_healthy
     networks:
-      - audio-translation-network
+      - micro-frontend-audio-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
       interval: 30s
@@ -53,7 +53,7 @@ services:
     build:
       context: ./translation-service
       dockerfile: Dockerfile
-    container_name: audio-translation-service
+    container_name: micro-frontend-audio-service
     restart: unless-stopped
     env_file:
       - ./translation-service/.env
@@ -66,7 +66,7 @@ services:
       - translation_outputs:/app/outputs
       - ./translation-service/google-credentials.json:/app/credentials/google-credentials.json:ro
     networks:
-      - audio-translation-network
+      - micro-frontend-audio-network
     depends_on:
       database:
         condition: service_healthy
@@ -82,7 +82,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: audio-translation-frontend
+    container_name: micro-frontend-audio-frontend
     restart: unless-stopped
     environment:
       # Frontend runs in browser, so uses external host URLs
@@ -97,7 +97,7 @@ services:
       translation-service:
         condition: service_healthy
     networks:
-      - audio-translation-network
+      - micro-frontend-audio-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
       interval: 30s
@@ -114,5 +114,5 @@ volumes:
     driver: local
 
 networks:
-  audio-translation-network:
+  micro-frontend-audio-network:
     driver: bridge
