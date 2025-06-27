@@ -1,0 +1,42 @@
+# Git
+.git/
+.gitignore
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker files
+Dockerfile*
+docker-compose*
+
+# Documentation
+*.md
+!README.md
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+
+# Environment files
+.env*
+
+# Build artifacts that are handled by individual services
+frontend/build/
+frontend/node_modules/
+backend/build/
+backend/.gradle/
+
+# Tomcat (not needed for Docker)
+tomcat/

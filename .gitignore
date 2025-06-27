@@ -1,0 +1,57 @@
+# Gradle
+.gradle/
+build/
+bin/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# Compiled class files
+*.class
+
+# Log files
+*.log
+
+# Package files
+*.jar
+*.war
+*.ear
+
+# Docker volumes and data
+mysql_data/
+translation_uploads/
+translation_outputs/
+
+# Translation service working directories
+translation-service/uploads/
+translation-service/outputs/
+
+# Node.js / React
+node_modules/
+frontend/build/
+npm-debug.log*
+*.tgz
+
+# Local configuration
+application-local.properties
+
+# Environment variables and credentials
+.env
+.env_local
+google-credentials.json
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# OS-specific
+.DS_Store
+Thumbs.db 
