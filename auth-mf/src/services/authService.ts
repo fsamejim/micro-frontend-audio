@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { LoginRequest, RegisterRequest, AuthResponse, User } from '../types/auth';
 
-const API_BASE_URL = '/api';
+const API_BASE_URL = 'http://localhost:8080/api';
 const API_URL = `${API_BASE_URL}/auth`;
 
 // Function to set auth token in axios headers
@@ -26,14 +26,22 @@ export const authService = {
     },
 
     register: async (data: RegisterRequest): Promise<AuthResponse> => {
-        const response = await axios.post(`${API_URL}/register`, data);
-        const { token } = response.data;
-        
-        // Set token in localStorage and axios headers
-        localStorage.setItem('token', token);
-        setAuthToken(token);
-        
-        return response.data;
+        console.log('authService.register called with:', data);
+        console.log('Making request to:', `${API_URL}/register`);
+        try {
+            const response = await axios.post(`${API_URL}/register`, data);
+            console.log('Registration response:', response.status, response.data);
+            const { token } = response.data;
+            
+            // Set token in localStorage and axios headers
+            localStorage.setItem('token', token);
+            setAuthToken(token);
+            
+            return response.data;
+        } catch (error) {
+            console.error('Registration request failed:', error);
+            throw error;
+        }
     },
 
     getCurrentUser: async (): Promise<User> => {

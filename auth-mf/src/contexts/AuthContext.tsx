@@ -50,11 +50,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const register = async (data: RegisterRequest) => {
-        const response = await authService.register(data);
-        localStorage.setItem('token', response.token);
-        setToken(response.token);
-        setUser(response.user);
-        setIsAuthenticated(true);
+        console.log('AuthContext register called with:', data);
+        try {
+            console.log('Calling authService.register...');
+            const response = await authService.register(data);
+            console.log('Registration successful:', response);
+            localStorage.setItem('token', response.token);
+            setToken(response.token);
+            setUser(response.user);
+            setIsAuthenticated(true);
+        } catch (error) {
+            console.error('Registration failed in AuthContext:', error);
+            throw error; // Re-throw so Register component can catch it
+        }
     };
 
     const value = {

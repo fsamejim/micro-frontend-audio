@@ -15,14 +15,14 @@ export function Navbar() {
           Micro Frontend Audio
         </Link>
         <div className="nav-links">
-          <Link to="/auth" className={isActive('/auth')}>
-            Authentication
+          <Link to="/auth/login" className={isActive('/auth/login')}>
+            Login
           </Link>
-          <Link to="/audio" className={isActive('/audio')}>
-            Audio Processing
+          <Link to="/auth/register" className={isActive('/auth/register')}>
+            Register
           </Link>
-          <Link to="/dashboard" className={isActive('/dashboard')}>
-            Dashboard
+          <Link to="/auth/test" className={isActive('/auth/test')}>
+            Test MF
           </Link>
         </div>
       </div>
