@@ -21,6 +21,9 @@ export function Navbar() {
           <Link to="/auth/register" className={isActive('/auth/register')}>
             Register
           </Link>
+          <Link to="/audio" className={isActive('/audio')}>
+            Audio Processing
+          </Link>
           <Link to="/auth/test" className={isActive('/auth/test')}>
             Test MF
           </Link>

@@ -7,16 +7,19 @@ export default defineConfig({
   plugins: [
     react(),
     federation({
-      name: 'shell-app',
-      remotes: {
-        authMf: 'http://localhost:3002/assets/remoteEntry.js',
-        audioMf: 'http://localhost:3003/assets/remoteEntry.js',
+      name: 'audioMf',
+      filename: 'remoteEntry.js',
+      exposes: {
+        './App': './src/App.tsx',
+        './AudioUpload': './src/components/AudioUpload.tsx',
+        './JobStatus': './src/components/JobStatus.tsx',
+        './JobHistory': './src/components/JobHistory.tsx',
       },
       shared: ['react', 'react-dom']
     }),
   ],
   server: {
-    port: 3000,
+    port: 3003,
   },
   build: {
     target: 'esnext',

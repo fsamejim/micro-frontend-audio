@@ -12,3 +12,8 @@ declare module 'authMf/Test' {
   const Test: React.ComponentType
   export default Test
 }
+
+declare module 'audioMf/App' {
+  const App: React.ComponentType
+  export default App
+}
