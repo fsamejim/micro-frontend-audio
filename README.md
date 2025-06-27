@@ -1,4 +1,4 @@
-# Audio Translation Web Application
+# Micro-Frontend-Audio Application
 
 A full-stack web application with React frontend and Spring Boot backend, featuring user authentication and JWT-based security. This application is fully containerized using Docker for easy deployment and development.
 
