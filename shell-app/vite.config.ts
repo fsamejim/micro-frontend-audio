@@ -11,6 +11,7 @@ export default defineConfig({
       remotes: {
         authMf: 'http://localhost:3002/assets/remoteEntry.js',
         audioMf: 'http://localhost:3003/assets/remoteEntry.js',
+        dashboardMf: 'http://localhost:3004/assets/remoteEntry.js',
       },
       shared: ['react', 'react-dom']
     }),

@@ -17,3 +17,23 @@ declare module 'audioMf/App' {
   const App: React.ComponentType
   export default App
 }
+
+declare module 'dashboardMf/Dashboard' {
+  const Dashboard: React.ComponentType
+  export default Dashboard
+}
+
+declare module 'dashboardMf/UserProfile' {
+  const UserProfile: React.ComponentType
+  export default UserProfile
+}
+
+declare module 'dashboardMf/Statistics' {
+  const Statistics: React.ComponentType
+  export default Statistics
+}
+
+declare module 'dashboardMf/App' {
+  const App: React.ComponentType
+  export default App
+}

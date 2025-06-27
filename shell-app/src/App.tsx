@@ -9,6 +9,7 @@ const AuthLogin = React.lazy(() => import('authMf/Login'))
 const AuthRegister = React.lazy(() => import('authMf/Register'))
 const AuthTest = React.lazy(() => import('authMf/Test'))
 const AudioApp = React.lazy(() => import('audioMf/App'))
+const DashboardApp = React.lazy(() => import('dashboardMf/App'))
 
 function App() {
   return (
@@ -23,7 +24,8 @@ function App() {
               <Route path="/auth/register" element={<AuthRegister />} />
               <Route path="/auth/test" element={<AuthTest />} />
               <Route path="/audio" element={<AudioApp />} />
-              <Route path="/" element={<Navigate to="/auth/login" replace />} />
+              <Route path="/dashboard" element={<DashboardApp />} />
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </Suspense>
         </main>

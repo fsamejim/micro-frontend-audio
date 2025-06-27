@@ -15,6 +15,9 @@ export function Navbar() {
           Micro Frontend Audio
         </Link>
         <div className="nav-links">
+          <Link to="/dashboard" className={isActive('/dashboard')}>
+            Dashboard
+          </Link>
           <Link to="/auth/login" className={isActive('/auth/login')}>
             Login
           </Link>
