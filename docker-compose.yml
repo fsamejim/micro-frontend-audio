@@ -77,29 +77,85 @@ services:
       retries: 5
       start_period: 60s
 
-  # React Frontend
-  frontend:
+  # Shell App (Host Microfrontend)
+  shell-app:
     build:
-      context: ./frontend
+      context: ./shell-app
       dockerfile: Dockerfile
-    container_name: micro-frontend-audio-frontend
+    container_name: micro-frontend-audio-shell
     restart: unless-stopped
     environment:
-      # Frontend runs in browser, so uses external host URLs
-      REACT_APP_API_BASE_URL: http://localhost:8080/api
-      REACT_APP_TRANSLATION_SERVICE_URL: http://localhost:8001
-      REACT_APP_ENVIRONMENT: docker
+      DOCKER_MODE: "true"
     ports:
       - "3000:80"
     depends_on:
-      backend:
-        condition: service_healthy
-      translation-service:
-        condition: service_healthy
+      - auth-mf
+      - audio-mf
+      - dashboard-mf
     networks:
       - micro-frontend-audio-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Auth Microfrontend (Remote)
+  auth-mf:
+    build:
+      context: ./auth-mf
+      dockerfile: Dockerfile
+    container_name: micro-frontend-audio-auth
+    restart: unless-stopped
+    environment:
+      DOCKER_MODE: "true"
+    ports:
+      - "3002:80"
+    networks:
+      - micro-frontend-audio-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/assets/remoteEntry.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Audio Microfrontend (Remote)
+  audio-mf:
+    build:
+      context: ./audio-mf
+      dockerfile: Dockerfile
+    container_name: micro-frontend-audio-audio
+    restart: unless-stopped
+    environment:
+      DOCKER_MODE: "true"
+    ports:
+      - "3003:80"
+    networks:
+      - micro-frontend-audio-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/assets/remoteEntry.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Dashboard Microfrontend (Remote)
+  dashboard-mf:
+    build:
+      context: ./dashboard-mf
+      dockerfile: Dockerfile
+    container_name: micro-frontend-audio-dashboard
+    restart: unless-stopped
+    environment:
+      DOCKER_MODE: "true"
+    ports:
+      - "3004:80"
+    networks:
+      - micro-frontend-audio-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/assets/remoteEntry.js"]
       interval: 30s
       timeout: 10s
       retries: 3

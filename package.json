@@ -1,0 +1,52 @@
+{
+  "name": "micro-frontend-audio",
+  "version": "1.0.0",
+  "description": "Micro-frontend architecture for audio translation application",
+  "private": true,
+  "scripts": {
+    "dev:local": "./scripts/dev-local.sh",
+    "dev:docker": "docker-compose up --build",
+    "dev:backend": "docker-compose up database backend translation-service",
+    "build:all": "./scripts/build-all.sh",
+    "build:local": "npm run build:shell && npm run build:auth && npm run build:audio && npm run build:dashboard",
+    "build:shell": "cd shell-app && npm run build",
+    "build:auth": "cd auth-mf && npm run build", 
+    "build:audio": "cd audio-mf && npm run build",
+    "build:dashboard": "cd dashboard-mf && npm run build",
+    "install:all": "./scripts/install-all.sh",
+    "clean:all": "./scripts/clean-all.sh",
+    "stop:all": "./scripts/stop-all.sh",
+    "logs": "docker-compose logs -f",
+    "status": "./scripts/status.sh",
+    "test:all": "./scripts/test-all.sh",
+    "fix:mf": "./scripts/fix-mf.sh"
+  },
+  "workspaces": [
+    "shell-app",
+    "auth-mf", 
+    "audio-mf",
+    "dashboard-mf"
+  ],
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-username/micro-frontend-audio.git"
+  },
+  "keywords": [
+    "microfrontend",
+    "react",
+    "vite", 
+    "module-federation",
+    "audio-processing",
+    "translation"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
