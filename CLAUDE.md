@@ -44,22 +44,38 @@ Run these commands from the `backend/` directory:
 ./gradlew build -x test
 ```
 
-### Frontend (React) Commands
+### Microfrontend Commands
 
-Run these commands from the `frontend/` directory:
-
+**Recommended Development Setup (Hybrid Mode):**
 ```bash
-# Install dependencies
-npm install
+# Start optimal development environment
+npm run dev:local
+# - Remote MFs in production mode (no CORS issues)
+# - Shell app in development mode (shows React warnings)
+```
 
-# Start development server
-npm start
+**Full Production Testing:**
+```bash
+# Start all services in production mode
+npm run prod:local
+# - All MFs optimized and minified
+# - No HTML validation warnings
+# - Production-ready performance testing
+```
 
-# Run tests
-npm test
+**Individual MF Commands:**
+```bash
+# Build individual microfrontends
+npm run build:auth      # Build auth-mf
+npm run build:audio     # Build audio-mf  
+npm run build:dashboard # Build dashboard-mf
+npm run build:shell     # Build shell-app
 
-# Build for production
-npm run build
+# Install all dependencies
+npm run install:all
+
+# Build all microfrontends
+npm run build:all
 ```
 
 ### Docker Commands
@@ -102,6 +118,27 @@ docker-compose logs database
 ```
 
 ## Architecture Overview
+
+### Microfrontend Development Modes
+
+This project supports two optimal development modes discovered through testing:
+
+**1. Hybrid Development Mode (Recommended for Development):**
+- **Remote MFs**: Production mode (`vite preview`) - Avoids Module Federation CORS issues
+- **Shell App**: Development mode (`vite dev`) - Shows React HTML validation warnings
+- **Use case**: Day-to-day development with debugging capabilities
+- **Command**: `npm run dev:local`
+
+**2. Full Production Mode (Recommended for Testing):**
+- **All MFs**: Production mode (`vite preview`) - Fully optimized and minified
+- **Performance**: Maximum optimization, no debug warnings
+- **Use case**: Production-ready local testing
+- **Command**: `npm run prod:local`
+
+**Important Notes:**
+- HTML validation warnings are React development features, not backend-related
+- Running all MFs in development mode causes Module Federation CORS issues
+- Backend choice (local vs Docker) does not affect frontend HTML validation warnings
 
 ### Authentication Flow
 
