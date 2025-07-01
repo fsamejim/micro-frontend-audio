@@ -1,0 +1,174 @@
+services:
+  # MySQL Database
+  database:
+    image: mysql:8.0
+    container_name: micro-frontend-audio-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: audiotranslationdb
+      MYSQL_USER: sammy
+      MYSQL_PASSWORD: password123
+      MYSQL_ROOT_PASSWORD: rootpassword123
+    ports:
+      - "3307:3306"  # Use 3307 to avoid conflict with local MySQL
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/src/main/resources/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - micro-frontend-audio-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Spring Boot Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: micro-frontend-audio-backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://database:3306/audiotranslationdb?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: sammy
+      SPRING_DATASOURCE_PASSWORD: password123
+      JWT_SECRET: THIS_IS_A_SECURE_SECRET_KEY_FOR_JWT_AUTHENTICATION_12345678901234567890
+    ports:
+      - "8080:8080"
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - micro-frontend-audio-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Python Translation Service
+  translation-service:
+    build:
+      context: ./translation-service
+      dockerfile: Dockerfile
+    container_name: micro-frontend-audio-service
+    restart: unless-stopped
+    env_file:
+      - ./translation-service/.env
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/google-credentials.json
+    ports:
+      - "8001:8000"
+    volumes:
+      - translation_uploads:/app/uploads
+      - translation_outputs:/app/outputs
+      - ./translation-service/google-credentials.json:/app/credentials/google-credentials.json:ro
+    networks:
+      - micro-frontend-audio-network
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Shell App (Host Microfrontend)
+  shell-app:
+    build:
+      context: ./shell-app
+      dockerfile: Dockerfile
+    container_name: micro-frontend-audio-shell
+    restart: unless-stopped
+    environment:
+      DOCKER_MODE: "true"
+    ports:
+      - "3000:80"
+    depends_on:
+      - auth-mf
+      - audio-mf
+      - dashboard-mf
+    networks:
+      - micro-frontend-audio-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Auth Microfrontend (Remote)
+  auth-mf:
+    build:
+      context: ./auth-mf
+      dockerfile: Dockerfile
+    container_name: micro-frontend-audio-auth
+    restart: unless-stopped
+    environment:
+      DOCKER_MODE: "true"
+    ports:
+      - "3002:80"
+    networks:
+      - micro-frontend-audio-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/assets/remoteEntry.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Audio Microfrontend (Remote)
+  audio-mf:
+    build:
+      context: ./audio-mf
+      dockerfile: Dockerfile
+    container_name: micro-frontend-audio-audio
+    restart: unless-stopped
+    environment:
+      DOCKER_MODE: "true"
+    ports:
+      - "3003:80"
+    networks:
+      - micro-frontend-audio-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/assets/remoteEntry.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Dashboard Microfrontend (Remote)
+  dashboard-mf:
+    build:
+      context: ./dashboard-mf
+      dockerfile: Dockerfile
+    container_name: micro-frontend-audio-dashboard
+    restart: unless-stopped
+    environment:
+      DOCKER_MODE: "true"
+    ports:
+      - "3004:80"
+    networks:
+      - micro-frontend-audio-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/assets/remoteEntry.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  mysql_data:
+    driver: local
+  translation_uploads:
+    driver: local
+  translation_outputs:
+    driver: local
+
+networks:
+  micro-frontend-audio-network:
+    driver: bridge
