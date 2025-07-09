@@ -66,7 +66,12 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000")); // React frontend URL
+        // Allow multiple origins for different environments
+        configuration.setAllowedOrigins(Arrays.asList(
+            "http://localhost:3000",     // Local development
+            "http://127.0.0.1:3000",     // Alternative localhost
+            "http://host.docker.internal:3000"  // Docker host access
+        ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type"));
         configuration.setAllowCredentials(true);

@@ -1,28 +1,35 @@
 # Multi-stage Dockerfile for Shell App (Host MF)
 FROM node:18-alpine AS builder
 
-WORKDIR /app
+WORKDIR /workspace
 
-# Copy package files
+# Copy workspace root files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Copy all workspace packages for dependency resolution
+COPY shell-app/package*.json ./shell-app/
+COPY auth-mf/package*.json ./auth-mf/
+COPY audio-mf/package*.json ./audio-mf/
+COPY dashboard-mf/package*.json ./dashboard-mf/
 
-# Copy source code
-COPY . .
+# Install all workspace dependencies (including dev for build)
+RUN npm ci
 
-# Build the application
+# Copy shell-app source code
+COPY shell-app/ ./shell-app/
+
+# Build the shell app
+WORKDIR /workspace/shell-app
 RUN npm run build
 
 # Production stage - serve with nginx
 FROM nginx:alpine
 
 # Copy built assets from builder stage
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /workspace/shell-app/dist /usr/share/nginx/html
 
 # Copy custom nginx configuration for SPA
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY shell-app/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Expose port 80
 EXPOSE 80
