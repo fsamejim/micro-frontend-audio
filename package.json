@@ -5,8 +5,11 @@
   "private": true,
   "scripts": {
     "dev:local": "./scripts/dev-local.sh",
+    "prod:local": "./scripts/prod-local.sh",
     "dev:docker": "docker-compose up --build",
     "dev:backend": "docker-compose up database backend translation-service",
+    "dev:backend-local": "./scripts/dev-backend-local.sh",
+    "dev:database": "docker-compose up database",
     "build:all": "./scripts/build-all.sh",
     "build:local": "npm run build:shell && npm run build:auth && npm run build:audio && npm run build:dashboard",
     "build:shell": "cd shell-app && npm run build",

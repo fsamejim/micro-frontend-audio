@@ -73,14 +73,14 @@ export const Statistics: React.FC = () => {
       {/* Statistics Grid */}
       <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' }, mb: 3 }}>
         {/* Total Jobs */}
-        <Box>
+        <Box key="total-jobs">
           <Card variant="outlined">
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <AudioIcon color="primary" sx={{ fontSize: 32, mb: 1 }} />
               <Typography variant="h5" component="div">
                 {stats.totalJobs}
               </Typography>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" color="text.secondary" component="div">
                 Total Jobs
               </Typography>
             </CardContent>
@@ -88,14 +88,14 @@ export const Statistics: React.FC = () => {
         </Box>
 
         {/* Completed */}
-        <Box>
+        <Box key="completed-jobs">
           <Card variant="outlined">
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <TranslateIcon color="success" sx={{ fontSize: 32, mb: 1 }} />
               <Typography variant="h5" component="div" color="success.main">
                 {stats.completedJobs}
               </Typography>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" color="text.secondary" component="div">
                 Completed
               </Typography>
             </CardContent>
@@ -103,14 +103,14 @@ export const Statistics: React.FC = () => {
         </Box>
 
         {/* In Progress */}
-        <Box>
+        <Box key="progress-jobs">
           <Card variant="outlined">
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <ScheduleIcon color="warning" sx={{ fontSize: 32, mb: 1 }} />
               <Typography variant="h5" component="div" color="warning.main">
                 {stats.inProgressJobs}
               </Typography>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" color="text.secondary" component="div">
                 In Progress
               </Typography>
             </CardContent>
@@ -118,14 +118,14 @@ export const Statistics: React.FC = () => {
         </Box>
 
         {/* Success Rate */}
-        <Box>
+        <Box key="success-rate">
           <Card variant="outlined">
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <TrendingIcon color="primary" sx={{ fontSize: 32, mb: 1 }} />
               <Typography variant="h5" component="div">
                 {stats.successRate}%
               </Typography>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" color="text.secondary" component="div">
                 Success Rate
               </Typography>
             </CardContent>
@@ -135,14 +135,14 @@ export const Statistics: React.FC = () => {
 
       {/* Processing Stats */}
       <Box sx={{ mb: 3 }}>
-        <Typography variant="subtitle2" gutterBottom>
+        <Typography variant="subtitle2" gutterBottom component="div">
           Processing Overview
         </Typography>
         <Box sx={{ mb: 1 }}>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="text.secondary" component="div">
             Total audio processed: {stats.totalMinutesProcessed} minutes
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="text.secondary" component="div">
             Average processing time: {stats.averageProcessingTime}
           </Typography>
         </Box>
@@ -155,7 +155,7 @@ export const Statistics: React.FC = () => {
 
       {/* Recent Activity */}
       <Box>
-        <Typography variant="subtitle2" gutterBottom>
+        <Typography variant="subtitle2" gutterBottom component="div">
           Recent Activity
         </Typography>
         <List dense>
@@ -167,22 +167,22 @@ export const Statistics: React.FC = () => {
               <ListItemText
                 primary={activity.action}
                 secondary={
-                  <Box>
-                    <Typography variant="body2" color="text.secondary">
+                  <>
+                    <Typography variant="body2" color="text.secondary" component="span">
                       {activity.file}
                     </Typography>
-                    <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography variant="caption" color="text.secondary">
-                        {activity.time}
-                      </Typography>
-                      <Chip
-                        label={activity.status}
-                        size="small"
-                        color={getStatusColor(activity.status) as any}
-                        variant="outlined"
-                      />
-                    </Box>
-                  </Box>
+                    <br />
+                    <Typography variant="caption" color="text.secondary" component="span">
+                      {activity.time}
+                    </Typography>
+                    {' '}
+                    <Chip
+                      label={activity.status}
+                      size="small"
+                      color={getStatusColor(activity.status) as any}
+                      variant="outlined"
+                    />
+                  </>
                 }
               />
             </ListItem>

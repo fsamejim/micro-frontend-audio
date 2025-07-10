@@ -1,28 +1,35 @@
 # Multi-stage Dockerfile for Audio Microfrontend
-FROM node:18-alpine AS builder
+FROM node:22-alpine AS builder
 
-WORKDIR /app
+WORKDIR /workspace
 
-# Copy package files
+# Copy workspace root files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Copy all workspace packages for dependency resolution
+COPY shell-app/package*.json ./shell-app/
+COPY auth-mf/package*.json ./auth-mf/
+COPY audio-mf/package*.json ./audio-mf/
+COPY dashboard-mf/package*.json ./dashboard-mf/
 
-# Copy source code
-COPY . .
+# Install all workspace dependencies (including dev for build)
+RUN npm ci
 
-# Build the application
+# Copy audio-mf source code
+COPY audio-mf/ ./audio-mf/
+
+# Build the audio microfrontend
+WORKDIR /workspace/audio-mf
 RUN npm run build
 
 # Production stage - serve with nginx
 FROM nginx:alpine
 
 # Copy built assets from builder stage
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /workspace/audio-mf/dist /usr/share/nginx/html
 
 # Copy custom nginx configuration for MF serving
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY audio-mf/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Expose port 80
 EXPOSE 80

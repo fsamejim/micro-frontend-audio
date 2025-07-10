@@ -79,11 +79,50 @@ check_mf_endpoint 3002 "Auth"
 check_mf_endpoint 3003 "Audio"
 check_mf_endpoint 3004 "Dashboard"
 
+# Function to check if process is local or Docker
+check_process_type() {
+    local port=$1
+    local pid=$(lsof -ti:$port 2>/dev/null || echo "")
+    
+    if [ -n "$pid" ]; then
+        local process_info=$(ps -p $pid -o comm= 2>/dev/null || echo "")
+        if [[ "$process_info" == *"java"* ]]; then
+            echo "Local Java"
+        elif [[ "$process_info" == *"python"* ]]; then
+            echo "Local Python"
+        elif [[ "$process_info" == *"docker-proxy"* ]] || docker ps --format "table {{.Names}}\t{{.Ports}}" | grep -q ":$port->"; then
+            echo "Docker"
+        else
+            echo "Unknown"
+        fi
+    else
+        echo "Not running"
+    fi
+}
+
 echo ""
 echo -e "${BLUE}Backend Services:${NC}"
-check_port_status 8080 "Spring Boot API"
-check_port_status 8001 "Translation Service"
-check_port_status 3307 "MySQL Database"
+spring_boot_type=$(check_process_type 8080)
+translation_type=$(check_process_type 8001)
+mysql_type=$(check_process_type 3307)
+
+if [ "$spring_boot_type" != "Not running" ]; then
+    check_port_status 8080 "Spring Boot API ($spring_boot_type)"
+else
+    check_port_status 8080 "Spring Boot API"
+fi
+
+if [ "$translation_type" != "Not running" ]; then
+    check_port_status 8001 "Translation Service ($translation_type)"
+else
+    check_port_status 8001 "Translation Service"
+fi
+
+if [ "$mysql_type" != "Not running" ]; then
+    check_port_status 3307 "MySQL Database ($mysql_type)"
+else
+    check_port_status 3307 "MySQL Database"
+fi
 
 echo ""
 echo -e "${BLUE}Docker Services:${NC}"
@@ -115,7 +154,10 @@ echo ""
 echo -e "${BLUE}Quick Actions:${NC}"
 echo "• Install all dependencies: npm run install:all"
 echo "• Build all microfrontends: npm run build:all"
-echo "• Start local development: npm run dev:local"
+echo "• Start hybrid development (recommended): npm run dev:local"
+echo "• Start full production locally: npm run prod:local"
 echo "• Start Docker services: npm run dev:docker"
+echo "• Start local Spring Boot: npm run dev:backend-local"
+echo "• Start Docker database only: npm run dev:database"
 echo "• Stop all services: npm run stop:all"
 echo "• Fix Module Federation issues: npm run fix:mf"

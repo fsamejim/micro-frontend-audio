@@ -1,137 +1,183 @@
 # Micro-Frontend-Audio Application
 
-A full-stack web application with React frontend and Spring Boot backend, featuring user authentication and JWT-based security. This application is fully containerized using Docker for easy deployment and development.
+A modern full-stack web application built with **Module Federation** micro-frontend architecture, featuring independent microfrontends, Spring Boot backend, and containerized deployment. This application demonstrates enterprise-level micro-frontend patterns with seamless module sharing and independent deployability.
 
-## Features
+## 🏗️ Architecture Overview
 
-- 🔐 User authentication with JWT tokens
-- 👤 User registration and login system
-- 🛡️ Secure password storage using BCrypt
-- 🔒 Protected routes in frontend
-- 🐳 Full Docker containerization
-- 📊 Health checks and monitoring
-- 🎨 Modern React UI with responsive design
+This application implements a **Module Federation** architecture with the following services:
 
-## Project Structure
+- **Shell App** (Host) - Main application shell that orchestrates all microfrontends
+- **Auth MF** (Remote) - Authentication microfrontend 
+- **Audio MF** (Remote) - Audio processing microfrontend
+- **Dashboard MF** (Remote) - Dashboard and analytics microfrontend
+- **Backend** - Spring Boot API with JWT authentication
+- **Translation Service** - Python FastAPI service for audio translation
+- **Database** - MySQL database for persistent storage
+
+## ✨ Features
+
+- 🔗 **Module Federation** - Independent microfrontends with shared dependencies
+- 🔐 **JWT Authentication** - Secure authentication across all microfrontends
+- 🎵 **Audio Processing** - Complete audio translation pipeline
+- 📊 **Real-time Dashboard** - Analytics and monitoring interface
+- 🐳 **Full Containerization** - Docker-based deployment with health checks
+- 🚀 **Independent Deployment** - Each microfrontend can be deployed separately
+- 🛡️ **CORS Security** - Proper cross-origin configuration for Module Federation
+- 📱 **Responsive Design** - Modern React UI across all microfrontends
+
+## 🗂️ Project Structure
 
 ```
-audio-translation-web/
-├── docker-compose.yml         # Docker orchestration
-├── docker-test.sh            # Docker testing script
+micro-frontend-audio/
+├── docker-compose.yml              # Docker orchestration
+├── package.json                    # Workspace root configuration
 │
-├── frontend/                  # React frontend application
-│   ├── Dockerfile            # Frontend container build
-│   ├── nginx.conf           # Production web server config
+├── shell-app/                      # Shell App (Host MF) - Port 3000
+│   ├── Dockerfile                  # Shell app container
+│   ├── nginx.conf                  # Production nginx config
+│   ├── vite.config.ts             # Vite + Module Federation config
 │   ├── src/
-│   │   ├── components/      # React components
-│   │   │   ├── auth/       # Authentication components
-│   │   │   │   ├── Login.tsx
-│   │   │   │   ├── Register.tsx
-│   │   │   │   └── ProtectedRoute.tsx
-│   │   │   └── Dashboard.tsx
-│   │   ├── contexts/        # React contexts
-│   │   │   └── AuthContext.tsx
-│   │   ├── services/        # API services
-│   │   │   └── authService.ts
-│   │   ├── types/           # TypeScript types
-│   │   │   └── auth.ts
-│   │   └── App.tsx
-│   └── package.json
+│   │   ├── components/            # Shell-specific components
+│   │   ├── App.tsx               # Main app with MF integration
+│   │   └── main.tsx              # Application entry point
+│   └── package.json              # Shell dependencies
 │
-├── backend/                   # Spring Boot backend application
-│   ├── Dockerfile            # Backend container build
+├── auth-mf/                        # Auth Microfrontend - Port 3001  
+│   ├── Dockerfile                  # Auth MF container
+│   ├── nginx.conf                 # CORS-enabled nginx config
+│   ├── vite.config.ts             # Module Federation expose config
 │   ├── src/
-│   │   ├── main/
-│   │   │   ├── java/com/example/frontbackweb/
-│   │   │   │   ├── config/         # Configuration classes
-│   │   │   │   ├── controller/     # REST controllers
-│   │   │   │   ├── model/          # Data models
-│   │   │   │   ├── repository/     # Data access layer
-│   │   │   │   ├── security/       # JWT security
-│   │   │   │   └── service/        # Business logic
-│   │   │   └── resources/
-│   │   │       ├── application.properties     # Default config
-│   │   │       ├── application-docker.properties  # Docker config
-│   │   │       └── init.sql       # Database initialization
-│   │   └── test/               # Test classes
-│   ├── build.gradle           # Backend dependencies
-│   └── gradlew               # Gradle wrapper
+│   │   ├── components/            # Authentication components
+│   │   │   ├── Login.tsx         # Login component
+│   │   │   ├── Register.tsx      # Registration component
+│   │   │   └── ProtectedRoute.tsx # Route protection
+│   │   ├── contexts/              # Auth context
+│   │   ├── services/              # Auth API services
+│   │   └── App.tsx               # Auth MF entry point
+│   └── package.json              # Auth MF dependencies
 │
-├── translation-service/        # Python FastAPI translation service
-│   ├── Dockerfile            # Translation service container build
+├── audio-mf/                       # Audio Microfrontend - Port 3002
+│   ├── Dockerfile                  # Audio MF container
+│   ├── nginx.conf                 # CORS-enabled nginx config  
+│   ├── vite.config.ts             # Module Federation expose config
+│   ├── src/
+│   │   ├── components/            # Audio processing components
+│   │   ├── services/              # Audio API services
+│   │   └── App.tsx               # Audio MF entry point
+│   └── package.json              # Audio MF dependencies
+│
+├── dashboard-mf/                   # Dashboard Microfrontend - Port 3003
+│   ├── Dockerfile                  # Dashboard MF container
+│   ├── nginx.conf                 # CORS-enabled nginx config
+│   ├── vite.config.ts             # Module Federation expose config
+│   ├── src/
+│   │   ├── components/            # Dashboard components
+│   │   ├── services/              # Dashboard API services  
+│   │   └── App.tsx               # Dashboard MF entry point
+│   └── package.json              # Dashboard MF dependencies
+│
+├── backend/                        # Spring Boot Backend - Port 8080
+│   ├── Dockerfile                  # Backend container
+│   ├── src/
+│   │   ├── main/java/com/example/frontbackweb/
+│   │   │   ├── config/           # Configuration classes
+│   │   │   ├── controller/       # REST controllers
+│   │   │   ├── model/            # Data models
+│   │   │   ├── repository/       # Data access layer
+│   │   │   ├── security/         # JWT security implementation
+│   │   │   └── service/          # Business logic
+│   │   └── resources/
+│   │       ├── application.properties
+│   │       ├── application-docker.properties  
+│   │       └── init.sql          # Database initialization
+│   ├── build.gradle              # Backend dependencies
+│   └── gradlew                   # Gradle wrapper
+│
+├── translation-service/            # Python FastAPI Service - Port 8001
+│   ├── Dockerfile                  # Translation service container
 │   ├── app/
-│   │   ├── main.py           # FastAPI application entry point
-│   │   ├── models/           # Data models
-│   │   │   └── translation_job.py
-│   │   └── services/         # Translation pipeline services
-│   │       ├── audio_preprocessing_service.py
-│   │       ├── transcription_service.py
-│   │       ├── text_formatting_service.py
-│   │       ├── translation_service.py
-│   │       ├── chunk_merging_service.py
-│   │       ├── text_cleaning_service.py
-│   │       └── tts_service.py
-│   ├── requirements.txt      # Python dependencies
-│   ├── README.md             # Translation service documentation
-│   ├── .env.example         # Environment variables template
-│   └── google-credentials.json  # Google Cloud service account key
+│   │   ├── main.py               # FastAPI application
+│   │   ├── models/               # Translation models
+│   │   └── services/             # Translation pipeline
+│   ├── requirements.txt          # Python dependencies
+│   └── README.md                 # Service-specific documentation
 │
-└── README.md                 # Project documentation
+└── README.md                      # This file
 ```
 
-## Quick Start
+## 🚀 Quick Start
+
+### Prerequisites
+- **Docker Desktop** - Required for containerized deployment
+- **Node.js 22.x** - For local development (optional)
+- **Java 21+** - For backend development (optional)
 
 ### Option 1: Docker (Recommended)
 
-1. Start the application with Docker Compose:
+1. **Start all services:**
    ```bash
    docker-compose up --build
    ```
 
-2. Access the application:
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:8080/api
-   - Database: localhost:3307 (MySQL)
+2. **Access the application:**
+   - **Shell App**: http://localhost:3000 (Main application)
+   - **Auth MF**: http://localhost:3001 (Authentication)
+   - **Audio MF**: http://localhost:3002 (Audio processing)
+   - **Dashboard MF**: http://localhost:3003 (Dashboard)
+   - **Backend API**: http://localhost:8080/api
+   - **Translation Service**: http://localhost:8001
+   - **Database**: localhost:3307 (MySQL)
 
-3. Default admin credentials:
+3. **Default credentials:**
    - Username: `admin`
    - Password: `admin123`
 
-4. Stop the application:
+4. **Stop the application:**
    ```bash
    docker-compose down
    ```
 
 ### Option 2: Local Development
 
-For development without Docker (requires local setup):
+For development without Docker:
 
-1. **Backend**: 
+1. **Install dependencies:**
    ```bash
-   cd backend
-   ./gradlew bootRun
+   npm run install:all
    ```
 
-2. **Frontend**:
+2. **Start services:**
    ```bash
-   cd frontend
-   npm install
-   npm start
-   ```
-
-3. **Database**: Set up local MySQL with credentials in `application.properties`
+   # Option A: Hybrid mode (recommended for development)
+   npm run dev:local
    
-## Docker Deployment
+   # Option B: Full production mode (for testing)
+   npm run prod:local
+   ```
 
-### Prerequisites
-- Docker and Docker Compose installed
-- No local MySQL or other services running on ports 3000, 8080, or 3307
+3. **Individual microfrontend commands:**
+   ```bash
+   npm run build:shell     # Build shell-app
+   npm run build:auth      # Build auth-mf
+   npm run build:audio     # Build audio-mf
+   npm run build:dashboard # Build dashboard-mf
+   npm run build:all       # Build all microfrontends
+   ```
+
+## 🐳 Docker Deployment
 
 ### Services Overview
-The Docker setup includes three services:
-- **Frontend**: React app served by Nginx (port 3000)
-- **Backend**: Spring Boot API (port 8080)  
-- **Database**: MySQL 8.0 (port 3307)
+The Docker stack includes 6 containerized services:
+
+| Service | Port | Purpose | Health Check |
+|---------|------|---------|--------------|
+| **shell-app** | 3000 | Host MF - Main application shell | `/health` |
+| **auth-mf** | 3001 | Remote MF - Authentication | `/health` |  
+| **audio-mf** | 3002 | Remote MF - Audio processing | `/health` |
+| **dashboard-mf** | 3003 | Remote MF - Dashboard | `/health` |
+| **backend** | 8080 | Spring Boot API | `/actuator/health` |
+| **translation-service** | 8001 | Python FastAPI service | `/health` |
+| **database** | 3307 | MySQL 8.0 database | Built-in |
 
 ### Docker Commands
 
@@ -142,8 +188,13 @@ docker-compose up --build
 # Start in background
 docker-compose up -d
 
-# View logs
-docker-compose logs -f [service-name]
+# View logs for all services
+docker-compose logs -f
+
+# View logs for specific service
+docker-compose logs -f shell-app
+docker-compose logs -f auth-mf
+docker-compose logs -f backend
 
 # Stop all services
 docker-compose down
@@ -152,248 +203,244 @@ docker-compose down
 docker-compose down -v
 
 # Rebuild specific service
-docker-compose build [service-name]
-docker-compose up [service-name]
+docker-compose build auth-mf
+docker-compose up auth-mf
 
 # Execute commands in running containers
 docker-compose exec backend bash
 docker-compose exec database mysql -u sammy -p audiotranslationdb
 ```
 
-### Docker Troubleshooting
+### Clean Rebuild Process
 
-**Port conflicts:**
 ```bash
-# Check what's using ports
-lsof -i :3000
-lsof -i :8080  
-lsof -i :3307
+# Complete clean rebuild (recommended for troubleshooting)
+docker-compose down
+rm -rf */node_modules node_modules
+docker system prune -af --volumes
+docker-compose up --build
+```
+
+## 🔧 Module Federation Configuration
+
+### Development Modes
+
+This project supports two optimized development modes:
+
+**1. Hybrid Development Mode (Recommended):**
+```bash
+npm run dev:local
+```
+- **Remote MFs**: Production mode (`vite preview`) - Avoids CORS issues
+- **Shell App**: Development mode (`vite dev`) - Shows React warnings  
+- **Use case**: Day-to-day development with debugging capabilities
+
+**2. Full Production Mode (Testing):**
+```bash
+npm run prod:local
+```
+- **All MFs**: Production mode (`vite preview`) - Fully optimized
+- **Performance**: Maximum optimization, no debug warnings
+- **Use case**: Production-ready local testing
+
+### Module Federation Architecture
+
+Each microfrontend is independently deployable:
+
+- **Shell App** - Consumes remote modules from other MFs
+- **Remote MFs** - Expose specific components via `remoteEntry.js`
+- **Shared Dependencies** - React, React-DOM shared across all MFs
+- **Independent Builds** - Each MF can be built and deployed separately
+
+## 🔐 Authentication Flow
+
+1. **User Registration/Login** - Handled by Auth MF
+2. **JWT Token Generation** - Backend issues JWT tokens
+3. **Token Sharing** - Authentication state shared across all MFs
+4. **Protected Routes** - Each MF can protect its own routes
+5. **Cross-MF Authentication** - Seamless auth state across modules
+
+## 🌐 API Endpoints
+
+### Backend API (Port 8080)
+- `POST /api/auth/login` - User authentication
+- `POST /api/auth/register` - User registration
+- `GET /api/auth/me` - Get current user (requires JWT)
+- `GET /actuator/health` - Backend health check
+
+### Translation Service API (Port 8001)
+- `POST /translate` - Audio translation endpoint
+- `GET /health` - Service health check
+
+### Microfrontend Health Checks
+- `GET http://localhost:3000/health` - Shell app
+- `GET http://localhost:3001/health` - Auth MF
+- `GET http://localhost:3002/health` - Audio MF  
+- `GET http://localhost:3003/health` - Dashboard MF
+
+## 🛠️ Technology Stack
+
+### Frontend (All Microfrontends)
+- **React 18.3.1** - UI library (stable version)
+- **TypeScript** - Type safety
+- **Vite 5.4.10** - Build tool (stable version)
+- **Module Federation** - Micro-frontend architecture
+- **@originjs/vite-plugin-federation** - Module Federation plugin
+
+### Backend & Services
+- **Spring Boot 3.2** - Java backend framework
+- **Spring Security + JWT** - Authentication & authorization
+- **MySQL 8.0** - Database
+- **FastAPI** - Python translation service
+
+### Infrastructure
+- **Docker & Docker Compose** - Containerization
+- **nginx** - Production web server with CORS support
+- **Node.js 22.x** - Runtime environment
+
+## 🔍 Troubleshooting
+
+### Module Federation Issues
+
+**CORS Errors:**
+```bash
+# Check nginx CORS configuration
+docker-compose logs auth-mf
+docker-compose logs audio-mf
+
+# Verify remoteEntry.js is accessible
+curl http://localhost:3001/assets/remoteEntry.js
+curl http://localhost:3002/assets/remoteEntry.js
+```
+
+**Remote Module Loading Failures:**
+```bash
+# Check all MF health endpoints
+curl http://localhost:3000/health  # Shell
+curl http://localhost:3001/health  # Auth
+curl http://localhost:3002/health  # Audio  
+curl http://localhost:3003/health  # Dashboard
+```
+
+**Version Compatibility Issues:**
+- Ensure all MFs use the same React version (18.3.1)
+- Verify Vite version compatibility (5.4.10)
+- Check Module Federation plugin version (1.4.1)
+
+### Docker Issues
+
+**Port Conflicts:**
+```bash
+# Check what's using the ports
+lsof -i :3000 :3001 :3002 :3003 :8080 :8001 :3307
 
 # Kill conflicting processes
 sudo kill -9 <PID>
 ```
 
-**Database issues:**
+**Build Failures:**
 ```bash
-# Reset database volume
+# Clean rebuild everything
+docker-compose down
+docker system prune -af --volumes
+rm -rf */node_modules node_modules
+docker-compose up --build
+```
+
+**Service Health Issues:**
+```bash
+# Check service status
+docker-compose ps
+
+# View specific service logs
+docker-compose logs [service-name]
+
+# Restart specific service
+docker-compose restart [service-name]
+```
+
+### Database Issues
+
+```bash
+# Reset database (WARNING: deletes all data)
 docker-compose down -v
 docker-compose up database
 
 # Connect to database directly
-docker-compose exec database mysql -u root -prootpassword123
-```
-
-**Application logs:**
-```bash
-# View all logs
-docker-compose logs
-
-# View specific service logs
-docker-compose logs backend
-docker-compose logs frontend
-docker-compose logs database
-```
-
-## Architecture
-
-### Services Overview
-The application consists of three containerized services:
-
-1. **Frontend** (React + Nginx)
-   - Modern React application with TypeScript
-   - JWT-based authentication
-   - Responsive Material-UI components
-   - Production-ready Nginx server
-
-2. **Backend** (Spring Boot)
-   - RESTful API with Spring Security
-   - JWT token authentication
-   - JPA/Hibernate for database access
-   - Health checks and monitoring endpoints
-
-3. **Database** (MySQL 8.0)
-   - Persistent data storage
-   - Automatic initialization with sample data
-   - Health checks and connection pooling
-   
-4. **Translation-Service**
-   Please see the detail at: translation-service/README.md
-
-## Authentication Flow
-
-1. **Registration**:
-   - User clicks "Register here" on login page
-   - Enters username, email, and password
-   - On successful registration, redirected to login page
-
-2. **Login**:
-   - User enters credentials
-   - JWT token is stored in localStorage
-   - User is redirected to dashboard
-
-3. **Protected Routes**:
-   - Routes are protected using `ProtectedRoute` component
-   - Unauthenticated users are redirected to login
-   - JWT token is validated on each request
-
-## API Endpoints
-
-All API endpoints are available at `http://localhost:8080/api`:
-
-- `POST /api/auth/login` - User login
-- `POST /api/auth/register` - User registration  
-- `GET /api/auth/me` - Get current user (requires JWT)
-- `GET /actuator/health` - Application health check
-
-## Troubleshooting
-
-### Docker Issues
-
-**Services won't start:**
-```bash
-# Check container status
-docker-compose ps
-
-# View container logs
-docker-compose logs [service-name]
-
-# Restart services
-docker-compose restart [service-name]
-```
-
-**Port conflicts:**
-```bash
-# Check what's using the ports
-lsof -i :3000  # Frontend
-lsof -i :8080  # Backend
-lsof -i :3307  # Database
-
-# Kill conflicting processes
-sudo kill -9 <PID>
-```
-
-**Database issues:**
-```bash
-# Reset database (WARNING: deletes all data)
-docker-compose down -v
-
-# Connect directly to database
 docker-compose exec database mysql -u sammy -ppassword123 audiotranslationdb
+
+# Check database health
+docker-compose exec database mysqladmin -u sammy -ppassword123 ping -h localhost
 ```
 
-**Clean restart:**
-```bash
-# Remove all containers and networks
-docker-compose down --remove-orphans
-
-# Remove all images and rebuild
-docker-compose build --no-cache
-docker-compose up
-```
-
-## Prerequisites
-
-**For Docker deployment (recommended):**
-- Docker Desktop
-- Docker Compose
-
-**For local development:**
-- Java 21+ (for backend development)
-- Node.js 18+ (for frontend development)
-- MySQL 8.0+ (for local database)
-
-## Technology Stack
-
-- **Frontend**: React 19, TypeScript, Material-UI, Axios
-- **Backend**: Spring Boot 3.2, Spring Security, JWT, JPA/Hibernate
-- **Database**: MySQL 8.0
-- **Infrastructure**: Docker, Docker Compose, Nginx
-- **Build Tools**: Gradle 8.x, npm
-
-## Development Workflow
+## 🚦 Development Workflow
 
 ### Getting Started
-1. **Clone and start the application:**
-   ```bash
-   git clone <repository-url>
-   cd audio-translation-web
-   docker-compose up --build
-   ```
+1. **Clone the repository**
+2. **Start with Docker**: `docker-compose up --build`
+3. **Access shell app**: http://localhost:3000
+4. **Login with**: admin / admin123
 
-2. **Access the application:**
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:8080/api
-   - Database: localhost:3307
+### Development Best Practices
 
-3. **Default login credentials:**
-   - Username: `admin`
-   - Password: `admin123`
+**Module Federation Development:**
+- Develop each MF independently when possible
+- Use hybrid mode for day-to-day development
+- Test production mode before deployment
+- Ensure shared dependencies are aligned
 
-### Development Commands
-
-**View logs:**
+**Code Changes Workflow:**
 ```bash
-# All services
-docker-compose logs -f
+# For individual MF changes
+docker-compose build [mf-name]
+docker-compose up [mf-name]
 
-# Specific service
-docker-compose logs -f backend
-docker-compose logs -f frontend  
-docker-compose logs -f database
-```
-
-**Database access:**
-```bash
-# Connect to database
-docker-compose exec database mysql -u sammy -ppassword123 audiotranslationdb
-
-# Run SQL queries
-docker-compose exec database mysql -u sammy -ppassword123 -e "SELECT * FROM users;"
-```
-
-**Development cycle:**
-```bash
-# Stop services
+# For multiple changes
 docker-compose down
-
-# Rebuild after code changes
-docker-compose build [service-name]
-
-# Start with fresh build
 docker-compose up --build
 ```
 
-## Configuration
+**Testing Workflow:**
+```bash
+# Test all health endpoints
+curl http://localhost:3000/health && echo " - Shell: OK"
+curl http://localhost:3001/health && echo " - Auth: OK"  
+curl http://localhost:3002/health && echo " - Audio: OK"
+curl http://localhost:3003/health && echo " - Dashboard: OK"
+curl http://localhost:8080/actuator/health && echo " - Backend: OK"
+curl http://localhost:8001/health && echo " - Translation: OK"
+```
 
-The application uses Docker environment variables and configuration files:
+## 📝 Configuration Files
 
-- **`docker-compose.yml`**: Service orchestration and environment variables
-- **`application-docker.properties`**: Docker-specific Spring Boot configuration
-- **`init.sql`**: Database initialization script (auto-executed)
+### Key Configuration Files
+- **`docker-compose.yml`** - Service orchestration
+- **`*/vite.config.ts`** - Module Federation configuration  
+- **`*/nginx.conf`** - CORS and routing configuration
+- **`application-docker.properties`** - Backend Docker config
+- **`package.json`** - Workspace and dependency management
 
-### Key Configuration Points
+### Environment Variables
+- **JWT_SECRET** - JWT token signing secret
+- **MYSQL_** - Database configuration variables
+- **CORS_ALLOWED_ORIGINS** - Frontend origins for CORS
 
-- **Database**: Automatically initialized with sample admin user
-- **JWT Secret**: Configured via environment variables
-- **CORS**: Configured to allow frontend-backend communication
-- **Health Checks**: All services include health monitoring
-
-## Contributing
+## 🤝 Contributing
 
 1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature-name`  
+2. **Create feature branch**: `git checkout -b feature/your-feature`
 3. **Make changes and test**: `docker-compose up --build`
-4. **Commit changes**: `git commit -m "Add feature"`
-5. **Push to branch**: `git push origin feature-name`
-6. **Create Pull Request**
+4. **Ensure all health checks pass**
+5. **Commit changes**: `git commit -m "Add your feature"`
+6. **Push to branch**: `git push origin feature/your-feature`
+7. **Create Pull Request**
 
-## License
+## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License.
 
 ---
 
-**Built with ❤️ using Docker, Spring Boot, and React**
+**🚀 Built with Module Federation, React 18, Spring Boot, and Docker**
 
-
-
+*Enterprise-ready micro-frontend architecture for scalable web applications*

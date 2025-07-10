@@ -80,8 +80,8 @@ services:
   # Shell App (Host Microfrontend)
   shell-app:
     build:
-      context: ./shell-app
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./shell-app/Dockerfile
     container_name: micro-frontend-audio-shell
     restart: unless-stopped
     environment:
@@ -104,8 +104,8 @@ services:
   # Auth Microfrontend (Remote)
   auth-mf:
     build:
-      context: ./auth-mf
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./auth-mf/Dockerfile
     container_name: micro-frontend-audio-auth
     restart: unless-stopped
     environment:
@@ -124,8 +124,8 @@ services:
   # Audio Microfrontend (Remote)
   audio-mf:
     build:
-      context: ./audio-mf
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./audio-mf/Dockerfile
     container_name: micro-frontend-audio-audio
     restart: unless-stopped
     environment:
@@ -144,8 +144,8 @@ services:
   # Dashboard Microfrontend (Remote)
   dashboard-mf:
     build:
-      context: ./dashboard-mf
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./dashboard-mf/Dockerfile
     container_name: micro-frontend-audio-dashboard
     restart: unless-stopped
     environment:
