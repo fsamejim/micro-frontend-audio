@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for Auth Microfrontend
-FROM node:18-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /workspace
 
