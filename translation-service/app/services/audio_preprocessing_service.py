@@ -25,8 +25,8 @@ class AudioPreprocessingService:
         self.target_sample_rate = int(os.getenv("TARGET_SAMPLE_RATE", "16000"))
         self.padding_ms = int(os.getenv("PADDING_MS", "500"))
         self.normalization_target_dbfs = int(os.getenv("NORMALIZATION_TARGET_DBFS", "-20"))
-        self.min_chunk_ms = int(os.getenv("MIN_CHUNK_MS", str(4 * 60 * 1000)))  # 4 minutes
-        self.max_chunk_ms = int(os.getenv("MAX_CHUNK_MS", str(6 * 60 * 1000)))  # 6 minutes
+        self.min_chunk_ms = int(os.getenv("MIN_CHUNK_MS", str(240000)))  # 4 minutes
+        self.max_chunk_ms = int(os.getenv("MAX_CHUNK_MS", str(360000)))  # 6 minutes
     
     async def preprocess_audio(self, input_audio_path: str, output_dir: str) -> tuple[str, str]:
         """
