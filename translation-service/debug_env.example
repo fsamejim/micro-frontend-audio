@@ -1,0 +1,17 @@
+# Environment Variables for Translation Service Debug
+
+# AssemblyAI API Key (required for transcription)
+ASSEMBLYAI_API_KEY=your_assemblyai_api_key_here
+
+# OpenAI API Key (required for translation)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Optional: AssemblyAI model (default: best)
+# Options: best, nano
+ASSEMBLYAI_MODEL=best
+
+# Optional: Rate limit delay for transcription (seconds)
+TRANSCRIPTION_RATE_LIMIT_DELAY=1
+
+# Google Cloud credentials file path (required for TTS)
+GOOGLE_APPLICATION_CREDENTIALS=google-credentials.json

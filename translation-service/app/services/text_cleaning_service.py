@@ -19,6 +19,7 @@ class TextCleaningService:
     async def clean_japanese_text(self, input_file: str, output_file: str) -> str:
         """
         Clean Japanese translated text by removing chunk markers and formatting artifacts
+        Uses the same logic as your working clean_japanese_dialogue.py
         
         Args:
             input_file: Path to merged Japanese transcript with chunk markers
@@ -33,34 +34,48 @@ class TextCleaningService:
             
             # Read the merged file
             with open(input_file, 'r', encoding='utf-8') as f:
-                content = f.read()
+                raw_text = f.read()
             
-            # Step 1: Remove chunk markers
-            content = self._remove_chunk_markers(content)
+            # Normalize line endings
+            raw_text = raw_text.replace('\r\n', '\n').replace('\r', '\n')
             
-            # Step 2: Clean speaker formatting
-            content = self._clean_speaker_formatting(content)
+            # Remove all chunk header lines like "=== TRANSLATION CHUNK chunk_001.txt ==="
+            raw_text = re.sub(r'^=== TRANSLATION CHUNK .*? ===\s*', '', raw_text, flags=re.MULTILINE)
             
-            # Step 3: Remove unwanted characters and artifacts
-            content = self._remove_artifacts(content)
+            # Remove non-printable or problematic characters (safe for TTS)
+            raw_text = re.sub(r'[^\x20-\x7E\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF。、「」！？\sA-Za-z0-9:：]', '', raw_text)
             
-            # Step 4: Normalize spacing and line breaks
-            content = self._normalize_spacing(content)
+            # Split into speaker blocks, allowing both full-width and half-width colons
+            speaker_blocks = re.split(r'(?=Speaker [A-Z][:：])', raw_text)
+            cleaned_blocks = []
             
-            # Step 5: Final Japanese text validation and cleanup
-            content = self._final_japanese_cleanup(content)
+            for block in speaker_blocks:
+                block = block.strip()
+                if not block:
+                    continue
+                
+                # Merge lines inside each speaker's block
+                lines = block.splitlines()
+                merged = lines[0]  # Keep the speaker tag + first line
+                for line in lines[1:]:
+                    merged += line.strip()  # Remove internal newlines
+                cleaned_blocks.append(merged)
+            
+            if not cleaned_blocks:
+                logger.warning("No speaker blocks found. Check input file formatting.")
+                return output_file
+            
+            # Join with two line breaks between speakers 
+            final_output = "\n\n".join(cleaned_blocks)
             
             # Save cleaned file
             os.makedirs(os.path.dirname(output_file), exist_ok=True)
             
             with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(content)
+                f.write(final_output)
             
             logger.info(f"Cleaned Japanese text saved: {output_file}")
-            
-            # Log statistics
-            stats = self._get_cleaning_stats(content)
-            logger.info(f"Cleaning stats: {stats}")
+            logger.info(f"Cleaned {len(cleaned_blocks)} speaker blocks")
             
             return output_file
             
