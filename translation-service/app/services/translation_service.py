@@ -281,7 +281,7 @@ class TranslationService:
         return chunks
     
     def _split_text_by_speakers(self, text: str) -> List[str]:
-        """Split text into chunks respecting speaker boundaries"""
+        """Split text into chunks respecting speaker boundaries (merging consecutive same-speaker lines)"""
         lines = text.splitlines()
         
         # Ensure first line has speaker label
@@ -289,31 +289,55 @@ class TranslationService:
             logger.warning("First line missing speaker label. Assuming 'Speaker A:'")
             lines[0] = f"Speaker A: {lines[0]}"
         
-        chunks = []
-        current_block = []
+        # First, merge consecutive same-speaker lines (like base code does)
+        merged_blocks = []
+        current_speaker = None
+        current_block_lines = []
         
         for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
             if self._is_speaker_line(line):
-                # New speaker found, process current block
-                if current_block:
-                    block_text = '\n'.join(current_block)
-                    if len(block_text) > self.chunk_width:
-                        # Split long block at sentence boundaries
-                        sub_blocks = self._split_long_block(current_block, self.chunk_width)
-                        chunks.extend(sub_blocks)
+                # Extract speaker from line
+                speaker_match = re.match(r'^(Speaker [A-E]):', line.strip())
+                if speaker_match:
+                    speaker = speaker_match.group(1)
+                    line_content = line[len(speaker)+1:].strip()  # Content after "Speaker X:"
+                    
+                    if current_speaker == speaker:
+                        # Same speaker, merge content
+                        if line_content:  # Only add non-empty content
+                            current_block_lines.append(line_content)
                     else:
-                        chunks.append(block_text)
-                    current_block.clear()
-            
-            current_block.append(line)
+                        # Different speaker, save previous block
+                        if current_block_lines and current_speaker:
+                            merged_text = f"{current_speaker}: {' '.join(current_block_lines)}"
+                            merged_blocks.append(merged_text)
+                        
+                        # Start new block
+                        current_speaker = speaker
+                        current_block_lines = [line_content] if line_content else []
+            else:
+                # Non-speaker line, add to current block if we have a speaker
+                if current_speaker and line:
+                    current_block_lines.append(line)
         
-        # Process final block
-        if current_block:
-            block_text = '\n'.join(current_block)
-            if len(block_text) > self.chunk_width:
-                sub_blocks = self._split_long_block(current_block, self.chunk_width)
+        # Add final block
+        if current_block_lines and current_speaker:
+            merged_text = f"{current_speaker}: {' '.join(current_block_lines)}"
+            merged_blocks.append(merged_text)
+        
+        # Now chunk the merged blocks (same logic as base code)
+        chunks = []
+        
+        for block in merged_blocks:
+            if len(block) > self.chunk_width:
+                # Split long block at sentence boundaries
+                sub_blocks = self._split_long_block([block], self.chunk_width)
                 chunks.extend(sub_blocks)
             else:
-                chunks.append(block_text)
+                chunks.append(block)
         
         return chunks
