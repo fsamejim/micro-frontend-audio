@@ -3,26 +3,23 @@ services:
   database:
     image: mysql:8.0
     container_name: micro-frontend-audio-db
-    restart: always
+    restart: unless-stopped
     environment:
       MYSQL_DATABASE: audiotranslationdb
       MYSQL_USER: sammy
       MYSQL_PASSWORD: password123
       MYSQL_ROOT_PASSWORD: rootpassword123
     ports:
-      - "127.0.0.1:3307:3306"  # Explicit localhost binding
+      - "3307:3306"  # Use 3307 to avoid conflict with local MySQL
     volumes:
       - mysql_data:/var/lib/mysql
       - ./backend/src/main/resources/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
-      micro-frontend-audio-network:
-        ipv4_address: 172.20.0.2
+      - micro-frontend-audio-network
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       timeout: 20s
       retries: 10
-      interval: 10s
-      start_period: 30s
 
   # Spring Boot Backend API
   backend:
@@ -30,58 +27,54 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: micro-frontend-audio-backend
-    restart: always
+    restart: unless-stopped
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      SPRING_DATASOURCE_URL: jdbc:mysql://172.20.0.2:3306/audiotranslationdb?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_URL: jdbc:mysql://database:3306/audiotranslationdb?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: sammy
       SPRING_DATASOURCE_PASSWORD: password123
       JWT_SECRET: THIS_IS_A_SECURE_SECRET_KEY_FOR_JWT_AUTHENTICATION_12345678901234567890
     ports:
-      - "127.0.0.1:8080:8080"  # Explicit localhost binding
+      - "8080:8080"
     depends_on:
       database:
         condition: service_healthy
     networks:
-      micro-frontend-audio-network:
-        ipv4_address: 172.20.0.3
+      - micro-frontend-audio-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
-      interval: 15s
+      interval: 30s
       timeout: 10s
-      retries: 8
-      start_period: 45s
+      retries: 5
+      start_period: 60s
 
-  # Python Translation Service - Critical for stability
+  # Python Translation Service
   translation-service:
     build:
       context: ./translation-service
       dockerfile: Dockerfile
     container_name: micro-frontend-audio-service
-    restart: always
+    restart: unless-stopped
     env_file:
       - ./translation-service/.env
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/google-credentials.json
     ports:
-      - "127.0.0.1:8001:8000"  # Explicit localhost binding - PREVENTS YOUR ISSUE
+      - "8001:8000"
     volumes:
       - translation_uploads:/app/uploads
       - translation_outputs:/app/outputs
       - ./translation-service/google-credentials.json:/app/credentials/google-credentials.json:ro
     networks:
-      micro-frontend-audio-network:
-        ipv4_address: 172.20.0.4
+      - micro-frontend-audio-network
     depends_on:
       database:
         condition: service_healthy
-      backend:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 10s
-      timeout: 8s
-      retries: 12
+      interval: 30s
+      timeout: 10s
+      retries: 5
       start_period: 60s
 
   # Shell App (Host Microfrontend)
@@ -90,26 +83,23 @@ services:
       context: .
       dockerfile: ./shell-app/Dockerfile
     container_name: micro-frontend-audio-shell
-    restart: always
+    restart: unless-stopped
     environment:
       DOCKER_MODE: "true"
     ports:
-      - "127.0.0.1:3000:80"  # Explicit localhost binding
+      - "3000:80"
     depends_on:
       - auth-mf
       - audio-mf
       - dashboard-mf
-      - backend
-      - translation-service
     networks:
-      micro-frontend-audio-network:
-        ipv4_address: 172.20.0.5
+      - micro-frontend-audio-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
+      start_period: 30s
 
   # Auth Microfrontend (Remote)
   auth-mf:
@@ -117,20 +107,19 @@ services:
       context: .
       dockerfile: ./auth-mf/Dockerfile
     container_name: micro-frontend-audio-auth
-    restart: always
+    restart: unless-stopped
     environment:
       DOCKER_MODE: "true"
     ports:
-      - "127.0.0.1:3002:80"  # Explicit localhost binding
+      - "3002:80"
     networks:
-      micro-frontend-audio-network:
-        ipv4_address: 172.20.0.6
+      - micro-frontend-audio-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/assets/remoteEntry.js"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
+      start_period: 30s
 
   # Audio Microfrontend (Remote)
   audio-mf:
@@ -138,20 +127,19 @@ services:
       context: .
       dockerfile: ./audio-mf/Dockerfile
     container_name: micro-frontend-audio-audio
-    restart: always
+    restart: unless-stopped
     environment:
       DOCKER_MODE: "true"
     ports:
-      - "127.0.0.1:3003:80"  # Explicit localhost binding
+      - "3003:80"
     networks:
-      micro-frontend-audio-network:
-        ipv4_address: 172.20.0.7
+      - micro-frontend-audio-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/assets/remoteEntry.js"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
+      start_period: 30s
 
   # Dashboard Microfrontend (Remote)
   dashboard-mf:
@@ -159,20 +147,19 @@ services:
       context: .
       dockerfile: ./dashboard-mf/Dockerfile
     container_name: micro-frontend-audio-dashboard
-    restart: always
+    restart: unless-stopped
     environment:
       DOCKER_MODE: "true"
     ports:
-      - "127.0.0.1:3004:80"  # Explicit localhost binding
+      - "3004:80"
     networks:
-      micro-frontend-audio-network:
-        ipv4_address: 172.20.0.8
+      - micro-frontend-audio-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/assets/remoteEntry.js"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
+      start_period: 30s
 
 volumes:
   mysql_data:
@@ -185,7 +172,3 @@ volumes:
 networks:
   micro-frontend-audio-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
-          gateway: 172.20.0.1

@@ -53,22 +53,31 @@ class ChunkMergingService:
             merged_content = []
             failed_chunks = []
             
-            # Read and merge each chunk
+            # Read and merge each chunk with speaker-aware spacing
             for chunk_num, filename in chunk_files:
                 chunk_path = os.path.join(chunks_dir, filename)
                 
                 try:
                     with open(chunk_path, 'r', encoding='utf-8') as f:
-                        chunk_content = f.read().strip()
+                        chunk_lines = f.read().splitlines()
                     
-                    if chunk_content:
-                        # Remove any chunk header artifacts that might have been added
-                        chunk_content = self._clean_chunk_content(chunk_content)
-                        
+                    if chunk_lines:
                         # Add chunk separator comment for debugging (will be cleaned later)
-                        merged_content.append(f"=== TRANSLATION CHUNK chunk_{chunk_num:03}.txt ===")
-                        merged_content.append(chunk_content)
-                        merged_content.append("")  # Blank line between chunks
+                        merged_content.append(f"=== TRANSLATION CHUNK {filename} ===")
+                        
+                        last_speaker = None
+                        for line in chunk_lines:
+                            # Check for speaker change
+                            match = re.match(r'^(Speaker [A-E]):', line.strip())
+                            if match:
+                                speaker = match.group(1)
+                                # Add double line break between different speakers
+                                if last_speaker and speaker != last_speaker:
+                                    merged_content.append("")  # First blank line
+                                    merged_content.append("")  # Second blank line
+                                last_speaker = speaker
+                            
+                            merged_content.append(line)
                         
                         logger.info(f"Merged chunk {chunk_num:03}")
                     else:

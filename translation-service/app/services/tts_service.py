@@ -63,6 +63,7 @@ class TTSService:
         self.speaking_rate = float(os.getenv("TTS_SPEAKING_RATE", "1.2"))
         self.audio_bitrate = os.getenv("TTS_AUDIO_BITRATE", "192k")
         self.retry_base_delay = float(os.getenv("TTS_RETRY_BASE_DELAY", "2"))
+        self.max_text_length = int(os.getenv("TTS_MAX_LENGTH", "2000"))  # Character limit per TTS call
         
     async def generate_japanese_audio(self, input_file: str, output_dir: str, merged_file: str) -> str:
         """
@@ -163,8 +164,62 @@ class TTSService:
         
         return segments
     
+    def _split_text_by_length(self, text: str, max_length: int = None) -> List[str]:
+        """Split text into chunks at sentence boundaries, matching your working version"""
+        if max_length is None:
+            max_length = self.max_text_length
+            
+        chunks = []
+        current_chunk = ""
+        
+        # Split by Japanese sentence endings
+        for sentence in re.split(r'(?<=[。！？\n])', text):
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            
+            test_chunk = current_chunk + sentence
+            if len(test_chunk.encode("utf-8")) > max_length:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = sentence
+            else:
+                current_chunk = test_chunk
+        
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+        
+        return chunks
+    
     async def _generate_segment_audio(self, text: str, speaker: str, output_file: str):
-        """Generate TTS audio for a single segment"""
+        """Generate TTS audio for a single segment, splitting long text if needed"""
+        
+        # Split long text into smaller chunks
+        text_chunks = self._split_text_by_length(text)
+        
+        if len(text_chunks) == 1:
+            # Single chunk - generate directly
+            await self._generate_single_audio_chunk(text_chunks[0], speaker, output_file)
+        else:
+            # Multiple chunks - generate separately and merge
+            logger.info(f"Splitting long text into {len(text_chunks)} chunks")
+            chunk_files = []
+            
+            for i, chunk_text in enumerate(text_chunks):
+                chunk_file = output_file.replace('.mp3', f'_part_{i+1}.mp3')
+                await self._generate_single_audio_chunk(chunk_text, speaker, chunk_file) 
+                chunk_files.append(chunk_file)
+            
+            # Merge chunk files into final output
+            await self._merge_audio_files(chunk_files, output_file)
+            
+            # Clean up temporary chunk files
+            for chunk_file in chunk_files:
+                if os.path.exists(chunk_file):
+                    os.remove(chunk_file)
+    
+    async def _generate_single_audio_chunk(self, text: str, speaker: str, output_file: str):
+        """Generate TTS audio for a single text chunk"""
         
         # Get voice configuration for speaker
         voice_config = self.speaker_voices.get(speaker, self.speaker_voices["Speaker A"])
@@ -185,14 +240,15 @@ class TTSService:
             volume_gain_db=0.0
         )
         
-        # Make TTS request with retry logic
+        # Make TTS request with retry logic and timeout
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 response = self.client.synthesize_speech(
                     input=synthesis_input,
                     voice=voice,
-                    audio_config=audio_config
+                    audio_config=audio_config,
+                    timeout=15  # 15 second timeout like your working version
                 )
                 
                 # Save audio to file

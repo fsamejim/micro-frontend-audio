@@ -41,9 +41,10 @@ npm-debug.log*
 application-local.properties
 
 # Environment variables and credentials
-.env
-.env_local
-google-credentials.json
+**/.env
+**/.env_local
+**/google-credentials.json
+**/.venv
 
 # Python cache
 __pycache__/
@@ -51,7 +52,11 @@ __pycache__/
 *$py.class
 *.so
 .Python
+**/.python-version
 
 # OS-specific
 .DS_Store
 Thumbs.db 
+
+# debug process
+**/debug_output/

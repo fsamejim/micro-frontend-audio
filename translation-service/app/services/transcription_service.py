@@ -22,9 +22,20 @@ class TranscriptionService:
         
         aai.settings.api_key = api_key
         
-        # Configure model and delays
-        model_name = os.getenv("ASSEMBLYAI_MODEL", "best")
-        self.speech_model = aai.SpeechModel.best if model_name == "best" else aai.SpeechModel.nano
+        # Configure model and delays (matching your base code)
+        model_name = os.getenv("ASSEMBLYAI_MODEL", "best").lower()
+        
+        model_map = {
+            "best": aai.SpeechModel.best,
+            "nano": aai.SpeechModel.nano,
+            "slam-1": aai.SpeechModel.slam_1,
+            "universal": aai.SpeechModel.universal,
+        }
+        
+        if model_name not in model_map:
+            raise ValueError(f"Invalid ASSEMBLYAI_MODEL: '{model_name}'. Must be one of: {list(model_map.keys())}")
+        
+        self.speech_model = model_map[model_name]
         self.rate_limit_delay = float(os.getenv("TRANSCRIPTION_RATE_LIMIT_DELAY", "1"))
         
         logger.info(f"AssemblyAI service initialized with model: {model_name}")
@@ -56,9 +67,10 @@ class TranscriptionService:
             logger.info(f"Found {len(chunk_files)} chunks to transcribe")
             
             # Configure transcription with speaker diarization
+            use_diarization = os.getenv("USE_SPEAKER_DIARIZATION", "true").lower() == "true"
             config = aai.TranscriptionConfig(
                 speech_model=self.speech_model,
-                speaker_labels=True
+                speaker_labels=use_diarization
             )
             
             transcriber = aai.Transcriber(config=config)
