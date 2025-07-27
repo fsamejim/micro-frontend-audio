@@ -30,6 +30,12 @@ export const translationService = {
         return response.data;
     },
 
+    // Retry a failed translation job
+    retryJob: async (jobId: string): Promise<{ job_id: string; status: string; message: string }> => {
+        const response = await axios.post(`${TRANSLATION_API_URL}/translation/retry/${jobId}`);
+        return response.data;
+    },
+
     // Download a specific file from a completed job
     downloadFile: async (jobId: string, fileType: 'english_transcript' | 'japanese_transcript' | 'japanese_audio'): Promise<Blob> => {
         const response = await axios.get(`${TRANSLATION_API_URL}/translation/download/${jobId}/${fileType}`, {

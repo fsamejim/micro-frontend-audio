@@ -158,6 +158,32 @@ This project supports two optimal development modes discovered through testing:
    - `/api/auth/me`: Get current user information (requires authentication)
    - `/actuator/health`: Health check endpoint
 
+### Audio Translation Retry Feature
+
+The application includes a comprehensive retry system for failed translation jobs:
+
+**How it works:**
+- **Smart Resume**: Detects the last successful step and resumes from there
+- **File Preservation**: Reuses all intermediate results (transcripts, translations, etc.)
+- **Step-by-Step Recovery**: Can resume from any of these failure points:
+  - Audio Preprocessing → Continues from transcription
+  - Transcription → Continues from text formatting  
+  - Text Formatting → Continues from translation
+  - Translation → Continues from chunk merging
+  - Chunk Merging → Continues from text cleaning
+  - Text Cleaning → Continues from audio generation
+  - Audio Generation → Retries audio generation only
+
+**Using the Retry Feature:**
+1. Go to the Job History page in the audio microfrontend
+2. Find jobs with "Failed" status - they show a "Retry" button
+3. Click "Retry" to restart processing from the last successful step
+4. Monitor progress in real-time as the job continues
+
+**API Endpoints:**
+- `POST /translation/retry/{job_id}` - Retry a failed job
+- Progress tracking continues through existing status endpoints
+
 ### Component Structure
 
 1. **Frontend**:
@@ -171,6 +197,11 @@ This project supports two optimal development modes discovered through testing:
    - Models in `/backend/src/main/java/com/example/frontbackweb/model/`
    - Security configuration in `/backend/src/main/java/com/example/frontbackweb/config/`
    - JWT implementation in `/backend/src/main/java/com/example/frontbackweb/security/`
+
+3. **Translation Service**:
+   - Python FastAPI service with 8-step translation workflow
+   - Automatic retry capability with smart resume logic
+   - Intermediate file preservation for efficient retries
 
 ## Database Configuration
 

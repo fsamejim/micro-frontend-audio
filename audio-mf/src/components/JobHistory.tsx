@@ -15,7 +15,8 @@ import {
 import {
     Refresh as RefreshIcon,
     History as HistoryIcon,
-    Visibility as ViewIcon
+    Visibility as ViewIcon,
+    Replay as RetryIcon
 } from '@mui/icons-material';
 import { translationService } from '../services/translationService';
 import type { TranslationJob } from '../types/translation';
@@ -30,6 +31,8 @@ export const JobHistory: React.FC<JobHistoryProps> = ({ onViewJob }) => {
     const [jobs, setJobs] = useState<TranslationJob[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [retryingJobs, setRetryingJobs] = useState<Set<string>>(new Set());
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
     const fetchJobs = async () => {
         if (!user) return;
@@ -51,17 +54,99 @@ export const JobHistory: React.FC<JobHistoryProps> = ({ onViewJob }) => {
         fetchJobs();
     }, [user]);
 
+    const handleRetryJob = async (jobId: string, originalFilename: string) => {
+        setError(null);
+        setSuccessMessage(null);
+        
+        // Add job to retrying set
+        setRetryingJobs(prev => new Set(prev.add(jobId)));
+        
+        try {
+            await translationService.retryJob(jobId);
+            setSuccessMessage(`Retry started for "${originalFilename}" from last successful step`);
+            
+            // Refresh jobs list after a short delay to show updated status
+            setTimeout(() => {
+                fetchJobs();
+            }, 1000);
+            
+        } catch (err: any) {
+            const errorMessage = err.response?.data?.detail || err.message || 'Failed to retry job';
+            setError(`Retry failed: ${errorMessage}`);
+        } finally {
+            // Remove job from retrying set
+            setRetryingJobs(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(jobId);
+                return newSet;
+            });
+        }
+    };
+
     const getStatusColor = (status: string): 'primary' | 'secondary' | 'success' | 'error' | 'warning' => {
         switch (status) {
-            case 'completed': return 'success';
-            case 'failed': return 'error';
-            case 'uploaded': return 'primary';
-            default: return 'warning';
+            case 'COMPLETED':
+            case 'completed': 
+                return 'success';
+            case 'FAILED_PREPROCESSING_AUDIO_EN':
+            case 'FAILED_TRANSCRIBING_EN':
+            case 'FAILED_FORMATTING_TEXT_EN':
+            case 'FAILED_TRANSLATING_CHUNKS_JP':
+            case 'FAILED_MERGING_CHUNKS_JP':
+            case 'FAILED_CLEANING_TEXT_JP':
+            case 'FAILED_GENERATING_AUDIO_JP':
+            case 'FAILED':
+            case 'failed': 
+                return 'error';
+            case 'UPLOADED_EN':
+            case 'uploaded': 
+                return 'primary';
+            default: 
+                return 'warning';
         }
+    };
+
+    const getRetryStepFromStatus = (status: string): string => {
+        switch (status) {
+            case 'FAILED_PREPROCESSING_AUDIO_EN': return 'Audio Preprocessing';
+            case 'FAILED_TRANSCRIBING_EN': return 'Transcription';
+            case 'FAILED_FORMATTING_TEXT_EN': return 'Text Formatting';
+            case 'FAILED_TRANSLATING_CHUNKS_JP': return 'Translation';
+            case 'FAILED_MERGING_CHUNKS_JP': return 'Chunk Merging';
+            case 'FAILED_CLEANING_TEXT_JP': return 'Text Cleaning';
+            case 'FAILED_GENERATING_AUDIO_JP': return 'Audio Generation';
+            case 'FAILED':
+            case 'failed':
+            default:
+                return 'Failed Step';
+        }
+    };
+
+    const isFailedStatus = (status: string): boolean => {
+        return status.startsWith('FAILED_') || status === 'FAILED' || status === 'failed';
     };
 
     const getStatusText = (status: string): string => {
         switch (status) {
+            case 'UPLOADED_EN': return 'Uploaded';
+            case 'PREPROCESSING_AUDIO_EN': return 'Preprocessing Audio';
+            case 'TRANSCRIBING_EN': return 'Transcribing';
+            case 'FORMATTING_TEXT_EN': return 'Formatting Text';
+            case 'TRANSLATING_CHUNKS_JP': return 'Translating';
+            case 'MERGING_CHUNKS_JP': return 'Merging Chunks';
+            case 'CLEANING_TEXT_JP': return 'Cleaning Text';
+            case 'GENERATING_AUDIO_JP': return 'Generating Audio';
+            case 'COMPLETED': return 'Completed';
+            // Specific failure statuses
+            case 'FAILED_PREPROCESSING_AUDIO_EN': return 'Failed: Audio Preprocessing';
+            case 'FAILED_TRANSCRIBING_EN': return 'Failed: Transcription';
+            case 'FAILED_FORMATTING_TEXT_EN': return 'Failed: Text Formatting';
+            case 'FAILED_TRANSLATING_CHUNKS_JP': return 'Failed: Translation';
+            case 'FAILED_MERGING_CHUNKS_JP': return 'Failed: Chunk Merging';
+            case 'FAILED_CLEANING_TEXT_JP': return 'Failed: Text Cleaning';
+            case 'FAILED_GENERATING_AUDIO_JP': return 'Failed: Audio Generation';
+            case 'FAILED': return 'Failed';
+            // Legacy support
             case 'uploaded': return 'Uploaded';
             case 'preprocessing_audio_en': return 'Preprocessing';
             case 'transcribing_en': return 'Transcribing';
@@ -122,6 +207,13 @@ export const JobHistory: React.FC<JobHistoryProps> = ({ onViewJob }) => {
                 </Alert>
             )}
 
+            {/* Success Alert */}
+            {successMessage && (
+                <Alert severity="success" sx={{ mb: 2 }}>
+                    {successMessage}
+                </Alert>
+            )}
+
             {/* Jobs List */}
             {jobs.length === 0 ? (
                 <Box textAlign="center" py={4}>
@@ -176,14 +268,42 @@ export const JobHistory: React.FC<JobHistoryProps> = ({ onViewJob }) => {
                                         </Box>
                                     }
                                 />
-                                {onViewJob && (
-                                    <IconButton 
-                                        onClick={() => onViewJob(job.job_id)}
-                                        sx={{ ml: 1 }}
-                                    >
-                                        <ViewIcon />
-                                    </IconButton>
-                                )}
+                                <Box display="flex" alignItems="center" gap={1}>
+                                    {/* Retry Button for Failed Jobs */}
+                                    {isFailedStatus(job.status) && (
+                                        <Button
+                                            variant="outlined"
+                                            size="small"
+                                            startIcon={<RetryIcon />}
+                                            onClick={() => handleRetryJob(job.job_id, job.original_filename)}
+                                            disabled={retryingJobs.has(job.job_id)}
+                                            sx={{ 
+                                                minWidth: 'auto',
+                                                color: 'warning.main',
+                                                borderColor: 'warning.main',
+                                                '&:hover': {
+                                                    borderColor: 'warning.dark',
+                                                    backgroundColor: 'warning.light'
+                                                }
+                                            }}
+                                        >
+                                            {retryingJobs.has(job.job_id) 
+                                                ? 'Retrying...' 
+                                                : `Retry from ${getRetryStepFromStatus(job.status)}`
+                                            }
+                                        </Button>
+                                    )}
+                                    
+                                    {/* View Job Button */}
+                                    {onViewJob && (
+                                        <IconButton 
+                                            onClick={() => onViewJob(job.job_id)}
+                                            sx={{ ml: 1 }}
+                                        >
+                                            <ViewIcon />
+                                        </IconButton>
+                                    )}
+                                </Box>
                             </ListItem>
                             {index < jobs.length - 1 && <Divider />}
                         </React.Fragment>
