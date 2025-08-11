@@ -490,6 +490,22 @@ sudo kill -9 <PID>
 
 **Build Failures:**
 ```bash
+  💡 Safe Commands:
+
+# Safe restart (keeps all data)
+# but this will lose the job ID
+docker-compose restart
+
+# Safe stop (keeps all data)  
+# but this will lose the job ID
+docker-compose down
+  
+# Check volume sizes
+docker system df -v
+
+# Completely delete all data
+docker-compose down -v
+  
 # Clean rebuild everything
 docker-compose down
 docker system prune -af --volumes
