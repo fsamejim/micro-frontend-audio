@@ -111,8 +111,12 @@ class TextFormattingService:
         # Remove multiple consecutive blank lines
         text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
         
-        # Ensure consistent spacing after colons
-        text = re.sub(r'(Speaker [A-Z]):\s*', r'\1: ', text)
+        # Fix double colons and ensure consistent spacing after colons
+        text = re.sub(r'(Speaker\s+[A-Z0-9]+):\s*:\s*', r'\1: ', text)  # Fix double colons
+        text = re.sub(r'(Speaker\s+[A-Z0-9]+):\s*', r'\1: ', text)      # Ensure single space
+        
+        # Add paragraph breaks to long speaker lines for better translation
+        text = self._add_paragraph_breaks(text)
         
         # Remove trailing whitespace from lines
         lines = text.split('\n')
@@ -125,6 +129,65 @@ class TextFormattingService:
             cleaned_lines.pop()
         
         return '\n'.join(cleaned_lines)
+    
+    def _add_paragraph_breaks(self, text: str, max_line_chars: int = 400) -> str:
+        """Add paragraph breaks within long speaker lines to improve translation quality"""
+        
+        lines = text.split('\n')
+        processed_lines = []
+        
+        for line in lines:
+            # Check if this is a speaker line that's too long
+            speaker_match = re.match(r'^(Speaker\s+[A-Z0-9]+):\s*(.*)$', line, re.IGNORECASE)
+            
+            if speaker_match and len(line) > max_line_chars:
+                speaker_label = speaker_match.group(1)
+                content = speaker_match.group(2).strip()
+                
+                if not content:
+                    processed_lines.append(line)
+                    continue
+                
+                # Split content at sentence boundaries
+                sentences = re.split(r'(?<=[.!?])\s+', content)
+                
+                # Rebuild with paragraph breaks, keeping it as one speaker turn
+                result_parts = [f"{speaker_label}: "]
+                current_paragraph = ""
+                
+                for sentence in sentences:
+                    sentence = sentence.strip()
+                    if not sentence:
+                        continue
+                    
+                    # If adding this sentence would make the paragraph too long, start new paragraph
+                    if current_paragraph and len(current_paragraph + " " + sentence) > max_line_chars:
+                        result_parts.append(current_paragraph.strip())
+                        result_parts.append("")  # Empty line for paragraph break
+                        current_paragraph = sentence
+                    else:
+                        if current_paragraph:
+                            current_paragraph += " " + sentence
+                        else:
+                            current_paragraph = sentence
+                
+                # Add the final paragraph
+                if current_paragraph.strip():
+                    result_parts.append(current_paragraph.strip())
+                
+                # Join the speaker label with the first paragraph, then add remaining parts
+                if len(result_parts) > 1:
+                    first_line = result_parts[0] + result_parts[1] if len(result_parts) > 1 else result_parts[0]
+                    processed_lines.append(first_line)
+                    processed_lines.extend(result_parts[2:])  # Add remaining paragraphs and breaks
+                else:
+                    processed_lines.append(line)  # Fallback to original line
+                    
+            else:
+                # Line is fine as-is
+                processed_lines.append(line)
+        
+        return '\n'.join(processed_lines)
     
     def get_speaker_stats(self, formatted_file: str) -> Dict:
         """Get statistics about speakers in formatted transcript"""

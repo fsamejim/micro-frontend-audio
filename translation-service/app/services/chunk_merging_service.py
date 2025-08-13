@@ -146,8 +146,9 @@ class ChunkMergingService:
             
             # Clean up speaker lines
             if re.match(r'^Speaker [A-E]:', line):
-                # Ensure consistent formatting
-                line = re.sub(r'^(Speaker [A-E]):\s*', r'\1: ', line)
+                # Fix double colons first, then ensure consistent formatting
+                line = re.sub(r'^(Speaker\s+[A-E]):\s*:\s*', r'\1: ', line)  # Fix double colons
+                line = re.sub(r'^(Speaker\s+[A-E]):\s*', r'\1: ', line)      # Ensure single space
                 cleaned_lines.append(line)
             elif line.strip():
                 # Non-empty line that's not a speaker line

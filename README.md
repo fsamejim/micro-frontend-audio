@@ -278,6 +278,156 @@ Each microfrontend is independently deployable:
 - `GET http://localhost:3002/health` - Audio MF  
 - `GET http://localhost:3003/health` - Dashboard MF
 
+## 🧪 Testing Retry Logic (Test Mode)
+
+The translation service includes comprehensive retry functionality with a built-in test mode for simulating failures at specific workflow steps.
+
+⚠️ **Important**: Test mode allows you to artificially simulate failures on **completed jobs** to test the retry functionality. Failures are injected AFTER a job completes successfully, not during processing.
+
+### How Test Mode Works
+
+**When `TEST_MODE=true` (development/testing):**
+- ✅ Test endpoints are **available** 
+- ✅ You can simulate failures using curl commands
+- ✅ Jobs can be artificially marked as failed for retry testing
+
+**When `TEST_MODE=false` (production):**
+- ❌ Test endpoints return **404 errors**
+- ❌ Curl commands are **blocked** for security
+- ❌ No failure simulation possible
+
+### Enabling Test Mode
+
+Test mode is controlled by the `TEST_MODE` environment variable in `/translation-service/.env`:
+
+```bash
+# Enable test endpoints for retry testing (development)
+TEST_MODE=true
+
+# Disable test endpoints for production security
+TEST_MODE=false
+```
+
+**To switch test mode without rebuilding:**
+```bash
+# 1. Edit /translation-service/.env and change TEST_MODE value
+# 2. Restart only the translation service
+docker-compose restart translation-service
+
+# 3. Verify test mode is active
+curl -X POST "http://localhost:8001/translation/test/fail/any-job-id?failure_step=translation"
+# Should return error if TEST_MODE=false, success message if TEST_MODE=true
+```
+
+### Complete Test Workflow
+
+#### Step 1: Upload and Complete a Job
+1. **Upload audio file**: Go to http://localhost:3000 and upload any audio file
+2. **Wait for completion**: Let the job complete normally (it should show "Completed" status)
+3. **Copy Job ID**: From the Job History page, copy the Job ID (e.g., `f210b6eb-61d2-4662-a676-bc83918168fe`)
+
+#### Step 2: Simulate Failure with Curl Commands
+
+**Example Job ID: `f210b6eb-61d2-4662-a676-bc83918168fe`** (replace with your actual Job ID)
+
+```bash
+# Test preprocessing failure (10% progress)
+curl -X POST "http://localhost:8001/translation/test/fail/f210b6eb-61d2-4662-a676-bc83918168fe?failure_step=preprocessing"
+
+# Test transcription failure (30% progress)  
+curl -X POST "http://localhost:8001/translation/test/fail/f210b6eb-61d2-4662-a676-bc83918168fe?failure_step=transcription"
+
+# Test text formatting failure (50% progress)
+curl -X POST "http://localhost:8001/translation/test/fail/f210b6eb-61d2-4662-a676-bc83918168fe?failure_step=formatting"
+
+# Test translation failure (65% progress)
+curl -X POST "http://localhost:8001/translation/test/fail/f210b6eb-61d2-4662-a676-bc83918168fe?failure_step=translation"
+
+# Test chunk merging failure (78% progress)
+curl -X POST "http://localhost:8001/translation/test/fail/f210b6eb-61d2-4662-a676-bc83918168fe?failure_step=merging"
+
+# Test text cleaning failure (83% progress)
+curl -X POST "http://localhost:8001/translation/test/fail/f210b6eb-61d2-4662-a676-bc83918168fe?failure_step=cleaning"
+
+# Test audio generation failure (95% progress)
+curl -X POST "http://localhost:8001/translation/test/fail/f210b6eb-61d2-4662-a676-bc83918168fe?failure_step=audio_generation"
+
+# Test generic failure (50% progress)
+curl -X POST "http://localhost:8001/translation/test/fail/f210b6eb-61d2-4662-a676-bc83918168fe?failure_step=generic"
+```
+
+**Expected curl response when TEST_MODE=true:**
+```json
+{
+  "job_id": "f210b6eb-61d2-4662-a676-bc83918168fe",
+  "status": "FAILED_TRANSLATION",
+  "message": "✅ Test failure injected at 'translation' step. Progress set to 65%. You can now test the retry functionality!",
+  "progress": 65,
+  "test_mode": true
+}
+```
+
+**Expected curl response when TEST_MODE=false:**
+```json
+{
+  "detail": "Test endpoints not available (TEST_MODE=false)"
+}
+```
+
+#### Step 3: Test the Retry Functionality
+After running a successful curl command:
+
+1. **Refresh Job History**: Go to http://localhost:3000 and refresh the Job History page
+2. **Observe Failure Status**: The job will now show specific failure status:
+   - `Failed: Audio Preprocessing` (for preprocessing failure)
+   - `Failed: Transcription` (for transcription failure)
+   - `Failed: Translation` (for translation failure)
+   - `Failed: Audio Generation` (for audio_generation failure)
+   - etc.
+3. **Click Retry Button**: You'll see a **"Retry from [Step Name]"** button
+4. **Monitor Progress**: Click retry and watch the job resume from the exact failure point
+5. **Verify Completion**: The job should complete successfully, reusing all previous work
+
+#### Step 4: Repeat Testing
+- You can simulate different failure scenarios on the same job
+- Each curl command overwrites the previous simulated failure
+- Test all 8 failure scenarios to verify comprehensive retry coverage
+
+### Available Failure Scenarios
+
+| Failure Step | Status | Progress | Retry Resumes From | Tests |
+|-------------|--------|----------|-------------------|--------|
+| `preprocessing` | `FAILED_PREPROCESSING_AUDIO_EN` | 10% | Audio preprocessing | File processing errors |
+| `transcription` | `FAILED_TRANSCRIBING_EN` | 30% | Transcription step | AssemblyAI API failures |
+| `formatting` | `FAILED_FORMATTING_TEXT_EN` | 50% | Text formatting | Text processing errors |
+| `translation` | `FAILED_TRANSLATING_CHUNKS_JP` | 65% | Translation step | OpenAI API failures |
+| `merging` | `FAILED_MERGING_CHUNKS_JP` | 78% | Chunk merging | File merging errors |
+| `cleaning` | `FAILED_CLEANING_TEXT_JP` | 83% | Text cleaning | Text cleaning errors |
+| `audio_generation` | `FAILED_GENERATING_AUDIO_JP` | 95% | Audio generation | Google TTS API failures |
+| `generic` | `FAILED` | 50% | Auto-detection | Legacy failure handling |
+
+### Retry Logic Features
+
+- **🎯 Smart Resume**: Detects exact failure point and continues from there
+- **💾 File Reuse**: Preserves all intermediate results (transcripts, translations, audio chunks)
+- **🔄 Step-by-Step Recovery**: Can resume from any workflow step
+- **📊 Progress Preservation**: Maintains realistic progress indicators
+- **🛡️ Error Handling**: Comprehensive error messages and status tracking
+
+### Production Deployment
+
+**Important**: Always disable test mode in production:
+
+```bash
+# In translation-service/.env
+TEST_MODE=false
+
+# Restart the service
+docker-compose restart translation-service
+```
+
+When `TEST_MODE=false`, test endpoints return 404 errors and are not accessible.
+
 ## 🛠️ Technology Stack
 
 ### Frontend (All Microfrontends)
@@ -340,6 +490,22 @@ sudo kill -9 <PID>
 
 **Build Failures:**
 ```bash
+  💡 Safe Commands:
+
+# Safe restart (keeps all data)
+# but this will lose the job ID
+docker-compose restart
+
+# Safe stop (keeps all data)  
+# but this will lose the job ID
+docker-compose down
+  
+# Check volume sizes
+docker system df -v
+
+# Completely delete all data
+docker-compose down -v
+  
 # Clean rebuild everything
 docker-compose down
 docker system prune -af --volumes

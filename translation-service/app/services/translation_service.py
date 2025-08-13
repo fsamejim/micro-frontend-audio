@@ -64,16 +64,16 @@ class TranslationService:
             chunks = self._split_text_by_speakers(english_transcript)
             logger.info(f"Split transcript into {len(chunks)} chunks")
             
-            # Translation system prompt - matches your working version
+            # Generic translation system prompt - no content assumptions
             system_prompt = textwrap.dedent("""\
-                    This is the well-known Joe and Charlie's AA workshop conversation.
-                    You are a professional translator. Translate the following English dialogue into natural, sincere spoken Japanese, as if it were a respectful and heartfelt conversation between two older men. 
-                    The tone should feel like a mature discussion between two lifelong friends or seasoned individuals — warm, humble, and spoken, yet carrying dignity and emotional depth. 
-                    Avoid stiff or formal language. Use natural phrasing that fits a spoken tone, suitable for an audiobook, podcast, or sincere AA talk. 
-                    Use 私 instead of 俺. Translate 'sobriety' as ソーバー (not 清酒). Translate ALCOHOLICS ANONYMOUS as アルコホーリクス・アノニマス. Translate Big Book as ビッグブック. 
-                    Do not change or translate the speaker labels — keep 'Speaker A:' and 'Speaker B:' exactly as they are. 
+                    You are a professional translator. Translate the following English dialogue into natural, sincere spoken Japanese, as if it were a respectful conversation between speakers. 
+                    The tone should feel like natural spoken dialogue — warm, clear, and conversational, yet maintaining appropriate respect. 
+                    Avoid stiff or formal language. Use natural phrasing that fits a spoken tone, suitable for an audiobook or podcast. 
+                    Use 私 instead of 俺 for first person references.
+                    Do not change or translate the speaker labels — keep 'Speaker A:', 'Speaker B:', 'Speaker C:' etc. exactly as they are. 
                     Do not use labels like '話者', 'スピーカー', or 'Speaker 1/2'. 
-                    Translate ALL English into natural spoken Japanese. Do not leave any part in English. Even if the sentence sounds like a quote, a slogan, or an AA motto, translate it. Do not preserve any English phrases. Keep the speaker labels exactly as they are (e.g., 'Speaker A:', 'Speaker B:').
+                    Translate ALL English into natural spoken Japanese. Do not leave any part in English. Even if the sentence sounds like a quote or technical term, translate it into appropriate Japanese.
+                    Keep the speaker labels exactly as they are (e.g., 'Speaker A:', 'Speaker B:').
                     Do not add or infer speaker tags if they are missing. Keep all line breaks and structure as-is.
                 """)
             
@@ -158,23 +158,30 @@ class TranslationService:
     def _normalize_speaker_labels(self, content: str) -> str:
         """Enhanced speaker label normalization (matching base code logic)"""
         
-        # First pass: Fix common Japanese translations and format issues (from base code)
+        # First, fix double colons that might already exist
+        content = re.sub(r'(Speaker\s+[A-E]):\s*:\s*', r'\1: ', content)
+        
+        # Then fix common Japanese translations and format issues (from base code)
         for speaker in self.speaker_ids:
             # Handle various formats that OpenAI might produce
             patterns_to_fix = [
-                # Japanese translations
-                fr"話者\s*{speaker}",
-                fr"スピーカー\s*{speaker}", 
+                # Japanese translations (without colon since we'll add it)
+                (fr"話者\s*{speaker}(?!\s*:)", f"Speaker {speaker}"),
+                (fr"スピーカー\s*{speaker}(?!\s*:)", f"Speaker {speaker}"), 
                 # Numeric speaker labels (Speaker 1, Speaker 2, etc.)
-                fr"Speaker\s*{ord(speaker) - ord('A') + 1}",
-                # Missing space/colon
-                fr"Speaker{speaker}",
-                # Extra spaces
-                fr"Speaker\s+{speaker}"
+                (fr"Speaker\s*{ord(speaker) - ord('A') + 1}(?!\s*:)", f"Speaker {speaker}"),
+                # Missing space (but not if colon already exists)
+                (fr"Speaker{speaker}(?!\s*:)", f"Speaker {speaker}"),
+                # Extra spaces (but not if colon already exists)
+                (fr"Speaker\s+{speaker}(?!\s*:)", f"Speaker {speaker}")
             ]
             
-            for pattern in patterns_to_fix:
-                content = re.sub(pattern, f"Speaker {speaker}:", content, flags=re.IGNORECASE)
+            for pattern, replacement in patterns_to_fix:
+                content = re.sub(pattern, replacement, content, flags=re.IGNORECASE)
+        
+        # Finally ensure all speaker labels have proper format
+        content = re.sub(r'(Speaker\s+[A-E])(?!\s*:)', r'\1:', content)  # Add colon if missing
+        content = re.sub(r'(Speaker\s+[A-E]):\s*', r'\1: ', content)     # Ensure single space after colon
         
         return content
     
