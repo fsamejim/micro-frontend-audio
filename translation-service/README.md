@@ -9,6 +9,7 @@ A standalone FastAPI microservice that converts English audio files to Japanese 
 ## Features
 
 - 🎧 **Speaker Diarization**: Maintains separate speaker voices in translation
+- 🎙️ **Force Single Speaker Mode**: Override multi-speaker detection with configurable male/female voice
 - 🔄 **Background Processing**: Asynchronous job processing with status tracking
 - 📁 **File Management**: Upload, process, and download result files
 - 🐳 **Docker Ready**: Complete containerization for easy deployment
@@ -304,6 +305,69 @@ The service uses two main directories that should be mounted as volumes:
 | `ASSEMBLYAI_API_KEY` | Yes | AssemblyAI API key for speech-to-text | `abc123...` |
 | `OPENAI_API_KEY` | Yes | OpenAI API key for translation | `sk-...` |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Yes | Path to Google Cloud service account JSON | `/app/credentials/google-credentials.json` |
+| `FORCE_SINGLE_SPEAKER_MODE` | No | Force single speaker mode regardless of content | `true`, `false` (default) |
+| `SINGLE_SPEAKER_VOICE_GENDER` | No | Voice gender for single speaker mode | `male` (default), `female` |
+
+## Speaker Mode Configuration
+
+The service supports two speaker modes:
+
+### 🎧 Multi-Speaker Mode (Default)
+- **Behavior**: Automatically detects and maintains separate speakers 
+- **AssemblyAI**: Uses speaker diarization to identify different speakers
+- **TTS Output**: Different Japanese voices for each detected speaker (A, B, C, etc.)
+- **Use Case**: Conversations, interviews, meetings with multiple participants
+
+**Configuration:**
+```bash
+FORCE_SINGLE_SPEAKER_MODE=false  # Default behavior
+# SINGLE_SPEAKER_VOICE_GENDER is ignored in this mode
+```
+
+### 🎙️ Single Speaker Mode (Forced)
+- **Behavior**: Treats all audio as single speaker regardless of actual content
+- **AssemblyAI**: Disables speaker diarization completely
+- **TTS Output**: Consistent single voice throughout entire translation
+- **Use Case**: Monologues, single-person talks, or when you want consistent voice
+
+**Configuration:**
+```bash
+FORCE_SINGLE_SPEAKER_MODE=true
+SINGLE_SPEAKER_VOICE_GENDER=male    # or 'female'
+```
+
+### Voice Options
+
+**Male Voice (Default):**
+- Voice: `ja-JP-Wavenet-C` (High-quality Google Cloud voice)
+- Best for: Professional content, narration, technical explanations
+
+**Female Voice:**
+- Voice: `ja-JP-Wavenet-A` (High-quality Google Cloud voice)  
+- Best for: Educational content, customer service, conversational tone
+
+### Configuration Examples
+
+**Force male voice for all content:**
+```bash
+# In your .env file
+FORCE_SINGLE_SPEAKER_MODE=true
+SINGLE_SPEAKER_VOICE_GENDER=male
+```
+
+**Force female voice for all content:**
+```bash
+# In your .env file
+FORCE_SINGLE_SPEAKER_MODE=true
+SINGLE_SPEAKER_VOICE_GENDER=female
+```
+
+**Normal multi-speaker behavior (default):**
+```bash
+# In your .env file  
+FORCE_SINGLE_SPEAKER_MODE=false
+# SINGLE_SPEAKER_VOICE_GENDER is ignored
+```
 
 ## Example Usage
 
@@ -335,12 +399,16 @@ curl -O "http://localhost:8000/translation/download/{job_id}/english_transcript"
 
 ## Processing Workflow
 
-The service follows a detailed 3-step workflow:
+The service follows a detailed 3-step workflow with behavior that adapts based on speaker mode:
 
 ### Step 1: Extract English Text (20-50% progress)
 1. **Audio Preprocessing**: Clean audio and create chunks for better processing
-2. **Speech-to-Text**: Use AssemblyAI to transcribe with speaker diarization
-3. **Text Formatting**: Format transcript with proper speaker labels
+2. **Speech-to-Text**: Use AssemblyAI to transcribe 
+   - **Multi-Speaker Mode**: Enables speaker diarization to identify different speakers
+   - **Force Single Mode**: Disables diarization, treats all speech as single speaker
+3. **Text Formatting**: Format transcript with speaker labels
+   - **Multi-Speaker Mode**: Maps speakers to A, B, C, etc. with spacing between speakers
+   - **Force Single Mode**: Normalizes all content to "Speaker A" format
 
 ### Step 2: Translate to Japanese (50-85% progress)  
 1. **Chunk Translation**: Translate text in manageable chunks using OpenAI
@@ -348,7 +416,9 @@ The service follows a detailed 3-step workflow:
 3. **Text Cleaning**: Remove artifacts and clean Japanese text
 
 ### Step 3: Generate Japanese Audio (85-100% progress)
-1. **Text-to-Speech**: Generate audio using Google Cloud TTS with multiple voices
+1. **Text-to-Speech**: Generate audio using Google Cloud TTS
+   - **Multi-Speaker Mode**: Different Japanese voices for each speaker (A=male, B=male, C=female, etc.)
+   - **Force Single Mode**: Consistent single voice throughout (configurable male/female)
 2. **Audio Merging**: Combine audio segments into final MP3 file
 
 ## Testing the Service

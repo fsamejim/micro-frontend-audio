@@ -67,11 +67,17 @@ class TranscriptionService:
             logger.info(f"Found {len(chunk_files)} chunks to transcribe")
             
             # Configure transcription with speaker diarization
-            use_diarization = os.getenv("USE_SPEAKER_DIARIZATION", "true").lower() == "true"
+            # Check if single speaker mode is forced
+            force_single_mode = os.getenv("FORCE_SINGLE_SPEAKER_MODE", "false").lower() == "true"
+            use_diarization = not force_single_mode and os.getenv("USE_SPEAKER_DIARIZATION", "true").lower() == "true"
+            
             config = aai.TranscriptionConfig(
                 speech_model=self.speech_model,
                 speaker_labels=use_diarization
             )
+            
+            if force_single_mode:
+                logger.info("🔒 FORCE_SINGLE_SPEAKER_MODE enabled - disabling speaker diarization")
             
             transcriber = aai.Transcriber(config=config)
             all_transcripts = []
@@ -92,13 +98,20 @@ class TranscriptionService:
                     
                     # Extract utterances with speaker labels
                     chunk_transcript = []
-                    if hasattr(transcript, 'utterances') and transcript.utterances:
+                    if hasattr(transcript, 'utterances') and transcript.utterances and not force_single_mode:
+                        # Normal multi-speaker mode
                         for utterance in transcript.utterances:
                             speaker_label = f"Speaker {utterance.speaker}"
                             chunk_transcript.append(f"{speaker_label}: {utterance.text}")
                     else:
-                        # Fallback if no speaker diarization
-                        chunk_transcript.append(f"Speaker A: {transcript.text}")
+                        # Single speaker mode (forced or no diarization available)
+                        if hasattr(transcript, 'utterances') and transcript.utterances and force_single_mode:
+                            # Forced single mode - combine all utterances as Speaker A
+                            combined_text = " ".join([utterance.text for utterance in transcript.utterances])
+                            chunk_transcript.append(f"Speaker A: {combined_text}")
+                        else:
+                            # Fallback if no speaker diarization
+                            chunk_transcript.append(f"Speaker A: {transcript.text}")
                     
                     all_transcripts.extend(chunk_transcript)
                     logger.info(f"Successfully transcribed chunk {i}/{len(chunk_files)}")

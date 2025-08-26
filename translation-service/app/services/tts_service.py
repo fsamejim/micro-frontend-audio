@@ -55,6 +55,25 @@ class TTSService:
             }
         }
         
+        # Single speaker voice configurations (for FORCE_SINGLE_SPEAKER_MODE)
+        self.single_speaker_voices = {
+            "male": {
+                "name": "ja-JP-Wavenet-C",  # High quality male voice
+                "gender": texttospeech.SsmlVoiceGender.MALE
+            },
+            "female": {
+                "name": "ja-JP-Wavenet-A",  # High quality female voice
+                "gender": texttospeech.SsmlVoiceGender.FEMALE
+            }
+        }
+        
+        # Check environment variables for single speaker mode
+        self.force_single_mode = os.getenv("FORCE_SINGLE_SPEAKER_MODE", "false").lower() == "true"
+        self.single_voice_gender = os.getenv("SINGLE_SPEAKER_VOICE_GENDER", "male").lower()
+        
+        if self.force_single_mode:
+            logger.info(f"🔒 FORCE_SINGLE_SPEAKER_MODE enabled with {self.single_voice_gender} voice")
+        
         # Rate limiting
         self.requests_per_minute = int(os.getenv("TTS_REQUESTS_PER_MINUTE", "300"))
         self.request_interval = 60.0 / self.requests_per_minute  # Seconds between requests
@@ -222,7 +241,16 @@ class TTSService:
         """Generate TTS audio for a single text chunk"""
         
         # Get voice configuration for speaker
-        voice_config = self.speaker_voices.get(speaker, self.speaker_voices["Speaker A"])
+        if self.force_single_mode:
+            # Use single voice for all speakers when forced
+            if self.single_voice_gender in self.single_speaker_voices:
+                voice_config = self.single_speaker_voices[self.single_voice_gender]
+            else:
+                logger.warning(f"Invalid SINGLE_SPEAKER_VOICE_GENDER: {self.single_voice_gender}, defaulting to male")
+                voice_config = self.single_speaker_voices["male"]
+        else:
+            # Use different voices for different speakers (normal mode)
+            voice_config = self.speaker_voices.get(speaker, self.speaker_voices["Speaker A"])
         
         # Prepare TTS request
         synthesis_input = texttospeech.SynthesisInput(text=text)
