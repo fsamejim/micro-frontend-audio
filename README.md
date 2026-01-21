@@ -210,7 +210,19 @@ docker-compose up auth-mf
 docker-compose exec backend bash
 docker-compose exec database mysql -u sammy -p audiotranslationdb
 ```
+  If your job is completed, you can access the files directly via these URLs (replace {job_id} with your actual Job ID):
 
+  http://localhost:8001/translation/download/{job_id}/japanese_audio
+  http://localhost:8001/translation/download/{job_id}/english_transcript
+  http://localhost:8001/translation/download/{job_id}/japanese_transcript
+
+    If You're Inside Docker
+
+  The actual output files are stored at:
+  /app/outputs/{job_id}/full_audio_jp.mp3          # Final Japanese audio
+  /app/outputs/{job_id}/transcript_en_formatted.txt # English transcript
+  /app/outputs/{job_id}/transcript_ja_clean.txt     # Japanese transcript
+  
 ### Clean Rebuild Process
 
 ```bash
