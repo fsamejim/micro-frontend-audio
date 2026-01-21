@@ -53,11 +53,12 @@ export const JobStatus: React.FC<JobStatusProps> = ({ jobId, initialStatus, onJo
         }
     };
 
+    // Always fetch fresh status on mount or when jobId changes
     useEffect(() => {
-        if (!initialStatus) {
+        if (jobId) {
             fetchJobStatus();
         }
-    }, [jobId, initialStatus]);
+    }, [jobId]);
 
     // Auto-refresh for active jobs
     useEffect(() => {

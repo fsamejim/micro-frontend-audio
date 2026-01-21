@@ -210,6 +210,12 @@ docker-compose up auth-mf
 docker-compose exec backend bash
 docker-compose exec database mysql -u sammy -p audiotranslationdb
 ```
+### Example to extract audio from YouTube video ###
+brew install yt-dlp
+yt-dlp -x --audio-format mp3 --audio-quality 0 "https://www.youtube.com/watch?v=7oAlD3lMNXo"
+### Example to download a YouTube video only (no audio) ###
+yt-dlp -f 312 "https://www.youtube.com/watch?v=7oAlD3lMNXo"
+
   If your job is completed, you can access the files directly via these URLs (replace {job_id} with your actual Job ID):
 
   http://localhost:8001/translation/download/{job_id}/japanese_audio
