@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ThemeProvider, CssBaseline, Container, Typography, Tabs, Tab, Box } from '@mui/material'
 import { createTheme } from '@mui/material/styles'
 import { AudioUpload } from './components/AudioUpload'
@@ -9,6 +9,7 @@ import type { JobStatusResponse } from './types/translation'
 import './App.css'
 
 const theme = createTheme()
+const CURRENT_JOB_ID_KEY = 'audio_translation_current_job_id'
 
 interface TabPanelProps {
   children?: React.ReactNode
@@ -34,7 +35,17 @@ function TabPanel(props: TabPanelProps) {
 
 function App() {
   const [tabValue, setTabValue] = useState(0)
-  const [currentJobId, setCurrentJobId] = useState<string>('')
+  const [currentJobId, setCurrentJobId] = useState<string>(() => {
+    // Load from localStorage on initial render
+    return localStorage.getItem(CURRENT_JOB_ID_KEY) || ''
+  })
+
+  // Persist currentJobId to localStorage whenever it changes
+  useEffect(() => {
+    if (currentJobId) {
+      localStorage.setItem(CURRENT_JOB_ID_KEY, currentJobId)
+    }
+  }, [currentJobId])
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue)
@@ -42,6 +53,12 @@ function App() {
 
   const handleJobCreated = (jobStatus: JobStatusResponse) => {
     setCurrentJobId(jobStatus.job_id)
+    setTabValue(1) // Switch to Job Status tab
+  }
+
+  const handleViewJob = (jobId: string) => {
+    setCurrentJobId(jobId)
+    localStorage.setItem(CURRENT_JOB_ID_KEY, jobId)
     setTabValue(1) // Switch to Job Status tab
   }
 
@@ -69,7 +86,7 @@ function App() {
             <JobStatus jobId={currentJobId} />
           </TabPanel>
           <TabPanel value={tabValue} index={2}>
-            <JobHistory />
+            <JobHistory onViewJob={handleViewJob} />
           </TabPanel>
         </Container>
       </AudioAuthProvider>

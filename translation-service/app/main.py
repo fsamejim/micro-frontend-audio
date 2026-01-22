@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 import uuid
+import json
 import aiofiles
 from datetime import datetime
 from typing import Optional, List
@@ -33,8 +34,94 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory job storage (in production, use Redis or database)
+# In-memory job storage (backed by JSON files for persistence)
 jobs_storage = {}
+
+# Directory for job outputs
+OUTPUTS_DIR = "/app/outputs"
+
+def get_job_json_path(job_id: str) -> str:
+    """Get the path to the job's JSON file"""
+    return os.path.join(OUTPUTS_DIR, job_id, "job.json")
+
+def save_job_to_disk(job: TranslationJob) -> None:
+    """Save job data to JSON file for persistence"""
+    try:
+        job_dir = os.path.join(OUTPUTS_DIR, job.job_id)
+        os.makedirs(job_dir, exist_ok=True)
+
+        job_path = get_job_json_path(job.job_id)
+        job_data = job.model_dump()
+
+        # Convert enum to string value
+        if job_data.get('status'):
+            status = job_data['status']
+            job_data['status'] = status.value if hasattr(status, 'value') else str(status)
+
+        # Convert datetime objects to ISO format strings
+        if job_data.get('created_at'):
+            job_data['created_at'] = job_data['created_at'].isoformat()
+        if job_data.get('completed_at'):
+            job_data['completed_at'] = job_data['completed_at'].isoformat()
+
+        with open(job_path, 'w') as f:
+            json.dump(job_data, f, indent=2)
+
+        logger.info(f"Saved job {job.job_id} to disk")
+    except Exception as e:
+        logger.error(f"Failed to save job {job.job_id} to disk: {e}")
+
+def load_job_from_disk(job_id: str) -> Optional[TranslationJob]:
+    """Load job data from JSON file"""
+    try:
+        job_path = get_job_json_path(job_id)
+        if not os.path.exists(job_path):
+            return None
+
+        with open(job_path, 'r') as f:
+            job_data = json.load(f)
+
+        # Convert ISO format strings back to datetime objects
+        if job_data.get('created_at'):
+            job_data['created_at'] = datetime.fromisoformat(job_data['created_at'])
+        if job_data.get('completed_at'):
+            job_data['completed_at'] = datetime.fromisoformat(job_data['completed_at'])
+
+        # Convert status string back to enum
+        if job_data.get('status'):
+            job_data['status'] = JobStatus(job_data['status'])
+
+        return TranslationJob(**job_data)
+    except Exception as e:
+        logger.error(f"Failed to load job {job_id} from disk: {e}")
+        return None
+
+def load_all_jobs_from_disk() -> None:
+    """Load all jobs from disk on startup"""
+    try:
+        if not os.path.exists(OUTPUTS_DIR):
+            logger.info("No outputs directory found, starting fresh")
+            return
+
+        loaded_count = 0
+        for job_id in os.listdir(OUTPUTS_DIR):
+            job_dir = os.path.join(OUTPUTS_DIR, job_id)
+            if os.path.isdir(job_dir):
+                job = load_job_from_disk(job_id)
+                if job:
+                    jobs_storage[job_id] = job
+                    loaded_count += 1
+
+        logger.info(f"Loaded {loaded_count} jobs from disk")
+    except Exception as e:
+        logger.error(f"Failed to load jobs from disk: {e}")
+
+# Load existing jobs on module import
+load_all_jobs_from_disk()
+
+def get_status_value(status) -> str:
+    """Safely get status value whether it's an enum or string"""
+    return status.value if hasattr(status, 'value') else str(status)
 
 class TranslationRequest(BaseModel):
     job_id: str
@@ -95,7 +182,8 @@ async def upload_audio_file(
     )
     
     jobs_storage[job_id] = job
-    
+    save_job_to_disk(job)  # Persist to JSON file
+
     # Start processing in background
     background_tasks.add_task(process_translation_job, job_id)
     
@@ -108,10 +196,17 @@ async def upload_audio_file(
 @app.get("/translation/status/{job_id}")
 async def get_job_status(job_id: str) -> JobStatusResponse:
     """Get translation job status"""
-    
+
+    # Try in-memory first, then fall back to disk
     if job_id not in jobs_storage:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
+        # Try to load from disk
+        job = load_job_from_disk(job_id)
+        if job:
+            jobs_storage[job_id] = job  # Cache in memory
+            logger.info(f"Loaded job {job_id} from disk into memory")
+        else:
+            raise HTTPException(status_code=404, detail="Job not found")
+
     job = jobs_storage[job_id]
     
     files = []
@@ -124,7 +219,7 @@ async def get_job_status(job_id: str) -> JobStatusResponse:
     
     return JobStatusResponse(
         job_id=job_id,
-        status=job.status.value,
+        status=get_status_value(job.status),
         progress=job.progress,
         message=job.message,
         error=job.error_message,
@@ -134,10 +229,16 @@ async def get_job_status(job_id: str) -> JobStatusResponse:
 @app.get("/translation/download/{job_id}/{file_type}")
 async def download_file(job_id: str, file_type: str):
     """Download translation result files"""
-    
+
+    # Try in-memory first, then fall back to disk
     if job_id not in jobs_storage:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
+        job = load_job_from_disk(job_id)
+        if job:
+            jobs_storage[job_id] = job
+            logger.info(f"Loaded job {job_id} from disk for download")
+        else:
+            raise HTTPException(status_code=404, detail="Job not found")
+
     job = jobs_storage[job_id]
     
     file_path = None
@@ -164,12 +265,12 @@ async def download_file(job_id: str, file_type: str):
 @app.get("/translation/jobs/{user_id}")
 async def get_user_jobs(user_id: int):
     """Get all translation jobs for a user"""
-    
+
     user_jobs = [
         {
             "job_id": job.job_id,
             "original_filename": job.original_filename,
-            "status": job.status.value,
+            "status": get_status_value(job.status),
             "progress": job.progress,
             "created_at": job.created_at.isoformat(),
             "completed_at": job.completed_at.isoformat() if job.completed_at else None
@@ -177,7 +278,7 @@ async def get_user_jobs(user_id: int):
         for job in jobs_storage.values()
         if job.user_id == user_id
     ]
-    
+
     return {"jobs": user_jobs}
 
 # Test endpoint for retry logic - only available when TEST_MODE=true
@@ -190,11 +291,17 @@ async def simulate_job_failure(job_id: str, failure_step: str):
     if not test_mode:
         raise HTTPException(status_code=404, detail="Test endpoints not available (TEST_MODE=false)")
     
+    # Try in-memory first, then fall back to disk
     if job_id not in jobs_storage:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
+        job = load_job_from_disk(job_id)
+        if job:
+            jobs_storage[job_id] = job
+            logger.info(f"Loaded job {job_id} from disk for test")
+        else:
+            raise HTTPException(status_code=404, detail="Job not found")
+
     job = jobs_storage[job_id]
-    
+
     # Map failure steps to status enums
     failure_mapping = {
         "preprocessing": JobStatus.FAILED_PREPROCESSING_AUDIO_EN,
@@ -231,12 +338,13 @@ async def simulate_job_failure(job_id: str, failure_step: str):
         "generic": 50
     }
     job.progress = progress_mapping[failure_step]
-    
+    save_job_to_disk(job)  # Persist test failure state
+
     logger.info(f"TEST: Simulated {failure_step} failure for job {job_id} (TEST_MODE enabled)")
     
     return {
         "job_id": job_id,
-        "status": job.status.value,
+        "status": get_status_value(job.status),
         "message": f"✅ Test failure injected at '{failure_step}' step. Progress set to {job.progress}%. You can now test the retry functionality!",
         "progress": job.progress,
         "test_mode": True
@@ -245,31 +353,39 @@ async def simulate_job_failure(job_id: str, failure_step: str):
 @app.post("/translation/retry/{job_id}")
 async def retry_job(job_id: str, background_tasks: BackgroundTasks):
     """Retry a failed translation job from the last successful step"""
-    
+
+    # Try in-memory first, then fall back to disk
     if job_id not in jobs_storage:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
+        job = load_job_from_disk(job_id)
+        if job:
+            jobs_storage[job_id] = job
+            logger.info(f"Loaded job {job_id} from disk for retry")
+        else:
+            raise HTTPException(status_code=404, detail="Job not found")
+
     job = jobs_storage[job_id]
     
     # Only allow retry for failed jobs (any failure status)
-    failed_statuses = [
-        JobStatus.FAILED,
-        JobStatus.FAILED_PREPROCESSING_AUDIO_EN,
-        JobStatus.FAILED_TRANSCRIBING_EN,
-        JobStatus.FAILED_FORMATTING_TEXT_EN,
-        JobStatus.FAILED_TRANSLATING_CHUNKS_JP,
-        JobStatus.FAILED_MERGING_CHUNKS_JP,
-        JobStatus.FAILED_CLEANING_TEXT_JP,
-        JobStatus.FAILED_GENERATING_AUDIO_JP
+    failed_status_values = [
+        "FAILED",
+        "FAILED_PREPROCESSING_AUDIO_EN",
+        "FAILED_TRANSCRIBING_EN",
+        "FAILED_FORMATTING_TEXT_EN",
+        "FAILED_TRANSLATING_CHUNKS_JP",
+        "FAILED_MERGING_CHUNKS_JP",
+        "FAILED_CLEANING_TEXT_JP",
+        "FAILED_GENERATING_AUDIO_JP"
     ]
-    
-    if job.status not in failed_statuses:
-        raise HTTPException(status_code=400, detail=f"Cannot retry job with status: {job.status.value}")
+
+    current_status = get_status_value(job.status)
+    if current_status not in failed_status_values:
+        raise HTTPException(status_code=400, detail=f"Cannot retry job with status: {current_status}")
     
     # Reset error state
     job.error_message = None
     job.message = "Retrying job from last successful step..."
-    
+    save_job_to_disk(job)  # Persist retry state
+
     # Start retry processing in background
     background_tasks.add_task(process_translation_job, job_id, is_retry=True)
     
@@ -281,20 +397,22 @@ async def retry_job(job_id: str, background_tasks: BackgroundTasks):
 
 def determine_resume_point(job: TranslationJob):
     """Determine which step to resume from based on failure status or existing files"""
-    
+
     # If we have a specific failure status, resume from that exact step
+    # Use string values for comparison to handle both enum and string status
     failure_to_resume_map = {
-        JobStatus.FAILED_PREPROCESSING_AUDIO_EN: JobStatus.PREPROCESSING_AUDIO_EN,
-        JobStatus.FAILED_TRANSCRIBING_EN: JobStatus.TRANSCRIBING_EN,
-        JobStatus.FAILED_FORMATTING_TEXT_EN: JobStatus.FORMATTING_TEXT_EN,
-        JobStatus.FAILED_TRANSLATING_CHUNKS_JP: JobStatus.TRANSLATING_CHUNKS_JP,
-        JobStatus.FAILED_MERGING_CHUNKS_JP: JobStatus.MERGING_CHUNKS_JP,
-        JobStatus.FAILED_CLEANING_TEXT_JP: JobStatus.CLEANING_TEXT_JP,
-        JobStatus.FAILED_GENERATING_AUDIO_JP: JobStatus.GENERATING_AUDIO_JP,
+        "FAILED_PREPROCESSING_AUDIO_EN": JobStatus.PREPROCESSING_AUDIO_EN,
+        "FAILED_TRANSCRIBING_EN": JobStatus.TRANSCRIBING_EN,
+        "FAILED_FORMATTING_TEXT_EN": JobStatus.FORMATTING_TEXT_EN,
+        "FAILED_TRANSLATING_CHUNKS_JP": JobStatus.TRANSLATING_CHUNKS_JP,
+        "FAILED_MERGING_CHUNKS_JP": JobStatus.MERGING_CHUNKS_JP,
+        "FAILED_CLEANING_TEXT_JP": JobStatus.CLEANING_TEXT_JP,
+        "FAILED_GENERATING_AUDIO_JP": JobStatus.GENERATING_AUDIO_JP,
     }
-    
-    if job.status in failure_to_resume_map:
-        return failure_to_resume_map[job.status]
+
+    current_status = get_status_value(job.status)
+    if current_status in failure_to_resume_map:
+        return failure_to_resume_map[current_status]
     
     # For generic FAILED status or other cases, use file-based detection
     # Check files in reverse order of creation
@@ -367,12 +485,14 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 job.processed_audio_dir = processed_dir
                 job.chunks_dir = chunks_dir
                 job.progress = 15
+                save_job_to_disk(job)
                 logger.info(f"Job {job_id}: Audio preprocessing completed")
             except Exception as e:
                 logger.error(f"Job {job_id}: Audio preprocessing failed: {e}")
                 job.status = JobStatus.FAILED_PREPROCESSING_AUDIO_EN
                 job.error_message = str(e)
                 job.message = f"Audio preprocessing failed: {str(e)}"
+                save_job_to_disk(job)
                 return
         
         # Step 1.2: Transcribe with AssemblyAI
@@ -387,12 +507,14 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 await transcription_service.transcribe_chunks(job.chunks_dir, raw_transcript_path)
                 job.raw_transcript_path = raw_transcript_path
                 job.progress = 40
+                save_job_to_disk(job)
                 logger.info(f"Job {job_id}: Transcription completed")
             except Exception as e:
                 logger.error(f"Job {job_id}: Transcription failed: {e}")
                 job.status = JobStatus.FAILED_TRANSCRIBING_EN
                 job.error_message = str(e)
                 job.message = f"Transcription failed: {str(e)}"
+                save_job_to_disk(job)
                 return
         
         # Step 1.3: Format Text
@@ -407,12 +529,14 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 await formatting_service.format_transcript(job.raw_transcript_path, formatted_transcript_path)
                 job.formatted_transcript_path = formatted_transcript_path
                 job.progress = 50
+                save_job_to_disk(job)
                 logger.info(f"Job {job_id}: Text formatting completed")
             except Exception as e:
                 logger.error(f"Job {job_id}: Text formatting failed: {e}")
                 job.status = JobStatus.FAILED_FORMATTING_TEXT_EN
                 job.error_message = str(e)
                 job.message = f"Text formatting failed: {str(e)}"
+                save_job_to_disk(job)
                 return
         
         # === STEP 2: TRANSLATE TO JAPANESE ===
@@ -429,12 +553,14 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 await translation_service.translate_to_japanese(job.formatted_transcript_path, translation_chunks_dir)
                 job.translation_chunks_dir = translation_chunks_dir
                 job.progress = 70
+                save_job_to_disk(job)
                 logger.info(f"Job {job_id}: Translation completed")
             except Exception as e:
                 logger.error(f"Job {job_id}: Translation failed: {e}")
                 job.status = JobStatus.FAILED_TRANSLATING_CHUNKS_JP
                 job.error_message = str(e)
                 job.message = f"Translation failed: {str(e)}"
+                save_job_to_disk(job)
                 return
         
         # Step 2.2: Merge Chunks
@@ -449,12 +575,14 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 await merging_service.merge_translation_chunks(job.translation_chunks_dir, merged_japanese_path)
                 job.merged_japanese_path = merged_japanese_path
                 job.progress = 80
+                save_job_to_disk(job)
                 logger.info(f"Job {job_id}: Chunk merging completed")
             except Exception as e:
                 logger.error(f"Job {job_id}: Chunk merging failed: {e}")
                 job.status = JobStatus.FAILED_MERGING_CHUNKS_JP
                 job.error_message = str(e)
                 job.message = f"Chunk merging failed: {str(e)}"
+                save_job_to_disk(job)
                 return
         
         # Step 2.3: Clean Japanese Text
@@ -469,12 +597,14 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 await cleaning_service.clean_japanese_text(job.merged_japanese_path, clean_japanese_path)
                 job.clean_japanese_path = clean_japanese_path
                 job.progress = 85
+                save_job_to_disk(job)
                 logger.info(f"Job {job_id}: Text cleaning completed")
             except Exception as e:
                 logger.error(f"Job {job_id}: Text cleaning failed: {e}")
                 job.status = JobStatus.FAILED_CLEANING_TEXT_JP
                 job.error_message = str(e)
                 job.message = f"Text cleaning failed: {str(e)}"
+                save_job_to_disk(job)
                 return
         
         # === STEP 3: GENERATE JAPANESE AUDIO ===
@@ -498,29 +628,33 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 job.audio_output_dir = audio_output_dir
                 job.final_japanese_audio_path = final_audio_path
                 job.progress = 100
+                save_job_to_disk(job)
                 logger.info(f"Job {job_id}: Audio generation completed")
             except Exception as e:
                 logger.error(f"Job {job_id}: Audio generation failed: {e}")
                 job.status = JobStatus.FAILED_GENERATING_AUDIO_JP
                 job.error_message = str(e)
                 job.message = f"Audio generation failed: {str(e)}"
+                save_job_to_disk(job)
                 return
         
         # Mark as completed
         job.status = JobStatus.COMPLETED
         job.message = "Translation completed successfully! 🎉"
         job.completed_at = datetime.now()
-        
+        save_job_to_disk(job)
+
         if is_retry:
             logger.info(f"Translation job {job_id} retry completed successfully")
         else:
             logger.info(f"Translation job {job_id} completed successfully")
-        
+
     except Exception as e:
         logger.error(f"Translation job {job_id} failed: {e}")
         job.status = JobStatus.FAILED
         job.error_message = str(e)
         job.message = f"Translation failed: {str(e)}"
+        save_job_to_disk(job)
 
 if __name__ == "__main__":
     import uvicorn
