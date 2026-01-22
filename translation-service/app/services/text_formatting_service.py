@@ -37,9 +37,15 @@ class TextFormattingService:
             lines = raw_text.strip().split('\n')
             formatted_lines = []
             
+            # Check if single speaker mode is forced
+            force_single_mode = os.getenv("FORCE_SINGLE_SPEAKER_MODE", "false").lower() == "true"
+            
             current_speaker = None
             speaker_mapping = {}  # Map original speaker IDs to A, B, C, etc.
             speaker_counter = 0
+            
+            if force_single_mode:
+                logger.info("🔒 FORCE_SINGLE_SPEAKER_MODE enabled - normalizing all speakers to Speaker A")
             
             for line in lines:
                 line = line.strip()
@@ -53,16 +59,19 @@ class TextFormattingService:
                     original_speaker = speaker_match.group(1).strip()
                     text_content = speaker_match.group(2).strip()
                     
-                    # Map speaker to consistent A, B, C format
-                    if original_speaker not in speaker_mapping:
-                        speaker_letter = chr(ord('A') + speaker_counter)
-                        speaker_mapping[original_speaker] = f"Speaker {speaker_letter}"
-                        speaker_counter += 1
+                    if force_single_mode:
+                        # Force all speakers to be "Speaker A"
+                        mapped_speaker = "Speaker A"
+                    else:
+                        # Map speaker to consistent A, B, C format (normal mode)
+                        if original_speaker not in speaker_mapping:
+                            speaker_letter = chr(ord('A') + speaker_counter)
+                            speaker_mapping[original_speaker] = f"Speaker {speaker_letter}"
+                            speaker_counter += 1
+                        mapped_speaker = speaker_mapping[original_speaker]
                     
-                    mapped_speaker = speaker_mapping[original_speaker]
-                    
-                    # Add spacing between different speakers
-                    if current_speaker and current_speaker != mapped_speaker:
+                    # Add spacing between different speakers (only in normal mode)
+                    if not force_single_mode and current_speaker and current_speaker != mapped_speaker:
                         formatted_lines.append("")  # Add blank line between speakers
                     
                     current_speaker = mapped_speaker

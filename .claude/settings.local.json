@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker-compose exec audio-mf grep:*)",
+      "Bash(docker-compose exec:*)",
+      "Bash(docker-compose build:*)",
+      "Bash(docker-compose restart:*)",
+      "Bash(docker-compose ps:*)"
+    ]
+  }
+}
