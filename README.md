@@ -215,6 +215,8 @@ brew install yt-dlp
 yt-dlp -x --audio-format mp3 --audio-quality 0 "https://www.youtube.com/watch?v=7oAlD3lMNXo"
 ### Example to download a YouTube video only (no audio) ###
 yt-dlp -f 312 "https://www.youtube.com/watch?v=7oAlD3lMNXo"
+yt-dlp -f 270 "https://www.youtube.com/watch?v=BYXbuik3dgA" -o "video.mp4"
+
 
   If your job is completed, you can access the files directly via these URLs (replace {job_id} with your actual Job ID):
 

@@ -77,11 +77,11 @@ export const translationService = {
     validateAudioFile: (file: File): { isValid: boolean; error?: string } => {
         const allowedTypes = ['audio/mp3', 'audio/wav', 'audio/m4a', 'audio/flac', 'audio/mpeg'];
         const allowedExtensions = ['.mp3', '.wav', '.m4a', '.flac'];
-        const maxSize = 100 * 1024 * 1024; // 100MB
+        const maxSize = 300 * 1024 * 1024; // 300MB
 
         // Check file size
         if (file.size > maxSize) {
-            return { isValid: false, error: 'File size must be less than 100MB' };
+            return { isValid: false, error: 'File size must be less than 300MB' };
         }
 
         // Check file type

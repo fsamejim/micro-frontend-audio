@@ -179,7 +179,7 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({ onJobCreated }) => {
                     or click to browse files
                 </Typography>
                 <Typography variant="caption" display="block" sx={{ mt: 1 }} color="textSecondary">
-                    Supported formats: MP3, WAV, M4A, FLAC (max 100MB)
+                    Supported formats: MP3, WAV, M4A, FLAC (max 300MB)
                 </Typography>
             </Box>
 
