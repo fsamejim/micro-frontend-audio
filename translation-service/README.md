@@ -34,7 +34,7 @@ Before running the service, you need API keys for the following services:
 - Enable the [Text-to-Speech API](https://console.cloud.google.com/marketplace/product/google/texttospeech.googleapis.com)
 - Create a service account with Editor role
 - Download the JSON key file
-- **Place the downloaded JSON file in the translation-service directory as `google-credentials.json`**
+- **Place the downloaded JSON file in the translation-service directory as `google-credentials.json`** at the root of the translation-service folder.
 
 ## Quick Start with Docker
   Steps to Start Docker Desktop:
