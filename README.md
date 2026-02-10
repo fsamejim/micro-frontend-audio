@@ -109,8 +109,28 @@ micro-frontend-audio/
 
 ### Prerequisites
 - **Docker Desktop** - Required for containerized deployment
-- **Node.js 22.x** - For local development (optional)
+- **Node.js 22.x** - For frontend microfrontends
 - **Java 21+** - For backend development (optional)
+
+### First Time Setup (Recommended)
+
+For initial installation on a new machine, use the setup script:
+
+```bash
+./setup.sh
+```
+
+The `./setup.sh` script will:
+1. Check prerequisites (Docker, Node.js, npm)
+2. Verify port availability
+3. Set up environment configuration (`.env` file)
+4. Check Google Cloud credentials
+5. Install frontend dependencies and build microfrontends (for local dev mode)
+6. Optionally start the application (`docker-compose up --build`)
+
+Once setup completes and you choose to start, the application will be running at http://localhost:3000
+
+**Note:** Docker builds the frontend inside containers, so steps 5 is optional but enables local development mode (`npm run dev:local`) if needed later.
 
 ### Option 1: Docker (Recommended)
 
@@ -163,6 +183,25 @@ For development without Docker:
    npm run build:dashboard # Build dashboard-mf
    npm run build:all       # Build all microfrontends
    ```
+
+### Rebuilding After Code Changes
+
+```bash
+# Rebuild and restart all services
+docker-compose up --build
+
+# If changes aren't being picked up (Docker cache issue), force rebuild:
+docker-compose build --no-cache audio-mf && docker-compose up -d
+
+# Or rebuild everything without cache:
+docker-compose build --no-cache && docker-compose up
+```
+
+**Alternative: Local development mode (faster iteration):**
+```bash
+# Run frontend locally instead of in Docker (faster for frequent changes)
+npm run build:audio && npm run prod:local
+```
 
 ## 🐳 Docker Deployment
 

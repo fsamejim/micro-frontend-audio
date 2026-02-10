@@ -37,45 +37,69 @@ class TranslationService:
         
         logger.info(f"Translation service initialized with model: {self.model_name}, temperature: {self.temperature}")
         logger.info(f"Tag normalization enabled: {self.enable_tag_normalization}")
-    
-    async def translate_to_japanese(self, input_file: str, chunks_dir: str) -> str:
+
+    def _get_en_to_ja_prompt(self) -> str:
+        """Get system prompt for English to Japanese translation"""
+        return textwrap.dedent("""\
+            You are a professional translator. Translate the following English dialogue into natural, sincere spoken Japanese, as if it were a respectful conversation between speakers.
+            The tone should feel like natural spoken dialogue — warm, clear, and conversational, yet maintaining appropriate respect.
+            Avoid stiff or formal language. Use natural phrasing that fits a spoken tone, suitable for an audiobook or podcast.
+            Use 私 instead of 俺 for first person references.
+            Do not change or translate the speaker labels — keep 'Speaker A:', 'Speaker B:', 'Speaker C:' etc. exactly as they are.
+            Do not use labels like '話者', 'スピーカー', or 'Speaker 1/2'.
+            Translate ALL English into natural spoken Japanese. Do not leave any part in English. Even if the sentence sounds like a quote or technical term, translate it into appropriate Japanese.
+            Keep the speaker labels exactly as they are (e.g., 'Speaker A:', 'Speaker B:').
+            Do not add or infer speaker tags if they are missing. Keep all line breaks and structure as-is.
+        """)
+
+    def _get_ja_to_en_prompt(self) -> str:
+        """Get system prompt for Japanese to English translation"""
+        return textwrap.dedent("""\
+            You are a professional translator. Translate the following Japanese dialogue into natural, clear spoken English, as if it were a casual yet respectful conversation between speakers.
+            The tone should feel like natural spoken dialogue — warm, clear, and conversational.
+            Use natural phrasing that fits a spoken tone, suitable for an audiobook or podcast.
+            Do not change or translate the speaker labels — keep 'Speaker A:', 'Speaker B:', 'Speaker C:' etc. exactly as they are.
+            Translate ALL Japanese into natural spoken English. Do not leave any part in Japanese. Even if the sentence sounds like a quote or technical term, translate it into appropriate English.
+            Keep the speaker labels exactly as they are (e.g., 'Speaker A:', 'Speaker B:').
+            Do not add or infer speaker tags if they are missing. Keep all line breaks and structure as-is.
+            Use contractions where natural in spoken English (e.g., "I'm", "don't", "we're").
+        """)
+
+    async def translate_text(self, input_file: str, chunks_dir: str, source_language: str = "en", target_language: str = "ja") -> str:
         """
-        Translate English transcript to Japanese in chunks
-        
+        Translate transcript between English and Japanese in chunks
+
         Args:
-            input_file: Path to English transcript
+            input_file: Path to source transcript
             chunks_dir: Directory to save translation chunks
-            
+            source_language: Source language code ("en" or "ja")
+            target_language: Target language code ("ja" or "en")
+
         Returns:
             str: Path to chunks directory
         """
-        
+
         try:
-            logger.info(f"Starting translation: {input_file}")
-            
+            logger.info(f"Starting translation: {input_file} ({source_language} -> {target_language})")
+
             # Create chunks directory
             os.makedirs(chunks_dir, exist_ok=True)
-            
-            # Read English transcript
+
+            # Read source transcript
             with open(input_file, 'r', encoding='utf-8') as f:
-                english_transcript = f.read()
-            
+                source_transcript = f.read()
+
             # Split into chunks using speaker-aware chunking
-            chunks = self._split_text_by_speakers(english_transcript)
+            chunks = self._split_text_by_speakers(source_transcript)
             logger.info(f"Split transcript into {len(chunks)} chunks")
-            
-            # Generic translation system prompt - no content assumptions
-            system_prompt = textwrap.dedent("""\
-                    You are a professional translator. Translate the following English dialogue into natural, sincere spoken Japanese, as if it were a respectful conversation between speakers. 
-                    The tone should feel like natural spoken dialogue — warm, clear, and conversational, yet maintaining appropriate respect. 
-                    Avoid stiff or formal language. Use natural phrasing that fits a spoken tone, suitable for an audiobook or podcast. 
-                    Use 私 instead of 俺 for first person references.
-                    Do not change or translate the speaker labels — keep 'Speaker A:', 'Speaker B:', 'Speaker C:' etc. exactly as they are. 
-                    Do not use labels like '話者', 'スピーカー', or 'Speaker 1/2'. 
-                    Translate ALL English into natural spoken Japanese. Do not leave any part in English. Even if the sentence sounds like a quote or technical term, translate it into appropriate Japanese.
-                    Keep the speaker labels exactly as they are (e.g., 'Speaker A:', 'Speaker B:').
-                    Do not add or infer speaker tags if they are missing. Keep all line breaks and structure as-is.
-                """)
+
+            # Select system prompt based on translation direction
+            if source_language == "en" and target_language == "ja":
+                system_prompt = self._get_en_to_ja_prompt()
+            elif source_language == "ja" and target_language == "en":
+                system_prompt = self._get_ja_to_en_prompt()
+            else:
+                raise ValueError(f"Unsupported translation direction: {source_language} -> {target_language}")
             
             # Process each chunk
             for idx, chunk in enumerate(chunks, start=1):

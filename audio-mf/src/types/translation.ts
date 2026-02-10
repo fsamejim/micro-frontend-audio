@@ -11,7 +11,7 @@ export interface TranslationJob {
 }
 
 export interface TranslationFile {
-    type: 'english_transcript' | 'japanese_transcript' | 'japanese_audio';
+    type: 'source_transcript' | 'target_transcript' | 'target_audio';
     available: boolean;
 }
 
@@ -34,14 +34,14 @@ export interface UserJobsResponse {
     jobs: TranslationJob[];
 }
 
-export type JobStatus = 
-    | 'uploaded' 
-    | 'preprocessing_audio_en' 
-    | 'transcribing_en'
-    | 'formatting_text_en'
-    | 'translating_chunks_jp'
-    | 'merging_chunks_jp'
-    | 'cleaning_text_jp'
-    | 'generating_audio_jp'
-    | 'completed'
-    | 'failed';
+export type JobStatus =
+    | 'UPLOADED'
+    | 'PREPROCESSING_AUDIO'
+    | 'TRANSCRIBING_SOURCE'
+    | 'FORMATTING_SOURCE_TEXT'
+    | 'TRANSLATING_TO_TARGET'
+    | 'MERGING_TARGET_CHUNKS'
+    | 'CLEANING_TARGET_TEXT'
+    | 'GENERATING_TARGET_AUDIO'
+    | 'COMPLETED'
+    | 'FAILED';

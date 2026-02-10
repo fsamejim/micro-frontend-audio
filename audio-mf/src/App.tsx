@@ -83,7 +83,7 @@ function App() {
             <AudioUpload onJobCreated={handleJobCreated} />
           </TabPanel>
           <TabPanel value={tabValue} index={1}>
-            <JobStatus jobId={currentJobId} />
+            <JobStatus key={currentJobId} jobId={currentJobId} />
           </TabPanel>
           <TabPanel value={tabValue} index={2}>
             <JobHistory onViewJob={handleViewJob} />

@@ -86,77 +86,62 @@ export const JobHistory: React.FC<JobHistoryProps> = ({ onViewJob }) => {
     const getStatusColor = (status: string): 'primary' | 'secondary' | 'success' | 'error' | 'warning' => {
         switch (status) {
             case 'COMPLETED':
-            case 'completed': 
                 return 'success';
-            case 'FAILED_PREPROCESSING_AUDIO_EN':
-            case 'FAILED_TRANSCRIBING_EN':
-            case 'FAILED_FORMATTING_TEXT_EN':
-            case 'FAILED_TRANSLATING_CHUNKS_JP':
-            case 'FAILED_MERGING_CHUNKS_JP':
-            case 'FAILED_CLEANING_TEXT_JP':
-            case 'FAILED_GENERATING_AUDIO_JP':
+            case 'FAILED_PREPROCESSING_AUDIO':
+            case 'FAILED_TRANSCRIBING_SOURCE':
+            case 'FAILED_FORMATTING_SOURCE_TEXT':
+            case 'FAILED_TRANSLATING_TO_TARGET':
+            case 'FAILED_MERGING_TARGET_CHUNKS':
+            case 'FAILED_CLEANING_TARGET_TEXT':
+            case 'FAILED_GENERATING_TARGET_AUDIO':
             case 'FAILED':
-            case 'failed': 
                 return 'error';
-            case 'UPLOADED_EN':
-            case 'uploaded': 
+            case 'UPLOADED':
                 return 'primary';
-            default: 
+            default:
                 return 'warning';
         }
     };
 
     const getRetryStepFromStatus = (status: string): string => {
         switch (status) {
-            case 'FAILED_PREPROCESSING_AUDIO_EN': return 'Audio Preprocessing';
-            case 'FAILED_TRANSCRIBING_EN': return 'Transcription';
-            case 'FAILED_FORMATTING_TEXT_EN': return 'Text Formatting';
-            case 'FAILED_TRANSLATING_CHUNKS_JP': return 'Translation';
-            case 'FAILED_MERGING_CHUNKS_JP': return 'Chunk Merging';
-            case 'FAILED_CLEANING_TEXT_JP': return 'Text Cleaning';
-            case 'FAILED_GENERATING_AUDIO_JP': return 'Audio Generation';
+            case 'FAILED_PREPROCESSING_AUDIO': return 'Audio Preprocessing';
+            case 'FAILED_TRANSCRIBING_SOURCE': return 'Transcription';
+            case 'FAILED_FORMATTING_SOURCE_TEXT': return 'Text Formatting';
+            case 'FAILED_TRANSLATING_TO_TARGET': return 'Translation';
+            case 'FAILED_MERGING_TARGET_CHUNKS': return 'Chunk Merging';
+            case 'FAILED_CLEANING_TARGET_TEXT': return 'Text Cleaning';
+            case 'FAILED_GENERATING_TARGET_AUDIO': return 'Audio Generation';
             case 'FAILED':
-            case 'failed':
             default:
                 return 'Failed Step';
         }
     };
 
     const isFailedStatus = (status: string): boolean => {
-        return status.startsWith('FAILED_') || status === 'FAILED' || status === 'failed';
+        return status.startsWith('FAILED_') || status === 'FAILED';
     };
 
     const getStatusText = (status: string): string => {
         switch (status) {
-            case 'UPLOADED_EN': return 'Uploaded';
-            case 'PREPROCESSING_AUDIO_EN': return 'Preprocessing Audio';
-            case 'TRANSCRIBING_EN': return 'Transcribing';
-            case 'FORMATTING_TEXT_EN': return 'Formatting Text';
-            case 'TRANSLATING_CHUNKS_JP': return 'Translating';
-            case 'MERGING_CHUNKS_JP': return 'Merging Chunks';
-            case 'CLEANING_TEXT_JP': return 'Cleaning Text';
-            case 'GENERATING_AUDIO_JP': return 'Generating Audio';
+            case 'UPLOADED': return 'Uploaded';
+            case 'PREPROCESSING_AUDIO': return 'Preprocessing Audio';
+            case 'TRANSCRIBING_SOURCE': return 'Transcribing';
+            case 'FORMATTING_SOURCE_TEXT': return 'Formatting Text';
+            case 'TRANSLATING_TO_TARGET': return 'Translating';
+            case 'MERGING_TARGET_CHUNKS': return 'Merging Chunks';
+            case 'CLEANING_TARGET_TEXT': return 'Cleaning Text';
+            case 'GENERATING_TARGET_AUDIO': return 'Generating Audio';
             case 'COMPLETED': return 'Completed';
             // Specific failure statuses
-            case 'FAILED_PREPROCESSING_AUDIO_EN': return 'Failed: Audio Preprocessing';
-            case 'FAILED_TRANSCRIBING_EN': return 'Failed: Transcription';
-            case 'FAILED_FORMATTING_TEXT_EN': return 'Failed: Text Formatting';
-            case 'FAILED_TRANSLATING_CHUNKS_JP': return 'Failed: Translation';
-            case 'FAILED_MERGING_CHUNKS_JP': return 'Failed: Chunk Merging';
-            case 'FAILED_CLEANING_TEXT_JP': return 'Failed: Text Cleaning';
-            case 'FAILED_GENERATING_AUDIO_JP': return 'Failed: Audio Generation';
+            case 'FAILED_PREPROCESSING_AUDIO': return 'Failed: Audio Preprocessing';
+            case 'FAILED_TRANSCRIBING_SOURCE': return 'Failed: Transcription';
+            case 'FAILED_FORMATTING_SOURCE_TEXT': return 'Failed: Text Formatting';
+            case 'FAILED_TRANSLATING_TO_TARGET': return 'Failed: Translation';
+            case 'FAILED_MERGING_TARGET_CHUNKS': return 'Failed: Chunk Merging';
+            case 'FAILED_CLEANING_TARGET_TEXT': return 'Failed: Text Cleaning';
+            case 'FAILED_GENERATING_TARGET_AUDIO': return 'Failed: Audio Generation';
             case 'FAILED': return 'Failed';
-            // Legacy support
-            case 'uploaded': return 'Uploaded';
-            case 'preprocessing_audio_en': return 'Preprocessing';
-            case 'transcribing_en': return 'Transcribing';
-            case 'formatting_text_en': return 'Formatting';
-            case 'translating_chunks_jp': return 'Translating';
-            case 'merging_chunks_jp': return 'Merging';
-            case 'cleaning_text_jp': return 'Cleaning';
-            case 'generating_audio_jp': return 'Generating Audio';
-            case 'completed': return 'Completed';
-            case 'failed': return 'Failed';
             default: return status;
         }
     };
@@ -259,7 +244,7 @@ export const JobHistory: React.FC<JobHistoryProps> = ({ onViewJob }) => {
                                                 <Typography variant="body2" color="textSecondary">
                                                     Progress: {job.progress}%
                                                 </Typography>
-                                                {job.status === 'completed' && (
+                                                {job.status === 'COMPLETED' && (
                                                     <Typography variant="body2" color="success.main">
                                                         • {job.files?.length || 0} files available
                                                     </Typography>

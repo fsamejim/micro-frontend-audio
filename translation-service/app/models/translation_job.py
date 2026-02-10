@@ -4,57 +4,61 @@ from typing import Optional
 from pydantic import BaseModel
 
 class JobStatus(Enum):
-    UPLOADED_EN = "UPLOADED_EN"
-    PREPROCESSING_AUDIO_EN = "PREPROCESSING_AUDIO_EN"
-    TRANSCRIBING_EN = "TRANSCRIBING_EN"
-    FORMATTING_TEXT_EN = "FORMATTING_TEXT_EN"
-    TRANSLATING_CHUNKS_JP = "TRANSLATING_CHUNKS_JP"
-    MERGING_CHUNKS_JP = "MERGING_CHUNKS_JP"
-    CLEANING_TEXT_JP = "CLEANING_TEXT_JP"
-    GENERATING_AUDIO_JP = "GENERATING_AUDIO_JP"
+    UPLOADED = "UPLOADED"
+    PREPROCESSING_AUDIO = "PREPROCESSING_AUDIO"
+    TRANSCRIBING_SOURCE = "TRANSCRIBING_SOURCE"
+    FORMATTING_SOURCE_TEXT = "FORMATTING_SOURCE_TEXT"
+    TRANSLATING_TO_TARGET = "TRANSLATING_TO_TARGET"
+    MERGING_TARGET_CHUNKS = "MERGING_TARGET_CHUNKS"
+    CLEANING_TARGET_TEXT = "CLEANING_TARGET_TEXT"
+    GENERATING_TARGET_AUDIO = "GENERATING_TARGET_AUDIO"
     COMPLETED = "COMPLETED"
     # Specific failure statuses for each step
-    FAILED_PREPROCESSING_AUDIO_EN = "FAILED_PREPROCESSING_AUDIO_EN"
-    FAILED_TRANSCRIBING_EN = "FAILED_TRANSCRIBING_EN"
-    FAILED_FORMATTING_TEXT_EN = "FAILED_FORMATTING_TEXT_EN"
-    FAILED_TRANSLATING_CHUNKS_JP = "FAILED_TRANSLATING_CHUNKS_JP"
-    FAILED_MERGING_CHUNKS_JP = "FAILED_MERGING_CHUNKS_JP"
-    FAILED_CLEANING_TEXT_JP = "FAILED_CLEANING_TEXT_JP"
-    FAILED_GENERATING_AUDIO_JP = "FAILED_GENERATING_AUDIO_JP"
+    FAILED_PREPROCESSING_AUDIO = "FAILED_PREPROCESSING_AUDIO"
+    FAILED_TRANSCRIBING_SOURCE = "FAILED_TRANSCRIBING_SOURCE"
+    FAILED_FORMATTING_SOURCE_TEXT = "FAILED_FORMATTING_SOURCE_TEXT"
+    FAILED_TRANSLATING_TO_TARGET = "FAILED_TRANSLATING_TO_TARGET"
+    FAILED_MERGING_TARGET_CHUNKS = "FAILED_MERGING_TARGET_CHUNKS"
+    FAILED_CLEANING_TARGET_TEXT = "FAILED_CLEANING_TARGET_TEXT"
+    FAILED_GENERATING_TARGET_AUDIO = "FAILED_GENERATING_TARGET_AUDIO"
     FAILED = "FAILED"  # Generic fallback for unknown failures
 
 class TranslationJob(BaseModel):
     job_id: str
     user_id: int
     original_filename: str
-    status: JobStatus = JobStatus.UPLOADED_EN
+    status: JobStatus = JobStatus.UPLOADED
     progress: int = 0
     message: str = ""
     error_message: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
-    
+
+    # Language direction configuration
+    source_language: str = "en"  # "en" or "ja"
+    target_language: str = "ja"  # "ja" or "en"
+
     # File paths for each step
     original_file_path: Optional[str] = None
-    
-    # Step 1: Extract English text paths
+
+    # Step 1: Extract source text paths
     processed_audio_dir: Optional[str] = None
     chunks_dir: Optional[str] = None
     raw_transcript_path: Optional[str] = None
     formatted_transcript_path: Optional[str] = None
-    
-    # Step 2: Japanese translation paths
+
+    # Step 2: Target translation paths
     translation_chunks_dir: Optional[str] = None
-    merged_japanese_path: Optional[str] = None
-    clean_japanese_path: Optional[str] = None
-    
-    # Step 3: Japanese audio generation paths
+    merged_target_path: Optional[str] = None
+    clean_target_path: Optional[str] = None
+
+    # Step 3: Target audio generation paths
     audio_output_dir: Optional[str] = None
-    final_japanese_audio_path: Optional[str] = None
-    
+    final_target_audio_path: Optional[str] = None
+
     # Resume tracking
     current_step: int = 1
     current_substep: int = 1
-    
+
     class Config:
         use_enum_values = True

@@ -6,8 +6,13 @@ import {
     Typography,
     LinearProgress,
     Alert,
-    IconButton
+    IconButton,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem
 } from '@mui/material';
+import type { SelectChangeEvent } from '@mui/material/Select';
 import {
     CloudUpload as UploadIcon,
     Delete as DeleteIcon,
@@ -21,6 +26,8 @@ interface AudioUploadProps {
     onJobCreated?: (job: JobStatusResponse) => void;
 }
 
+type LanguageDirection = 'EN_JP' | 'JP_EN';
+
 export const AudioUpload: React.FC<AudioUploadProps> = ({ onJobCreated }) => {
     const { user } = useAuth();
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -28,7 +35,12 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({ onJobCreated }) => {
     const [uploading, setUploading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
+    const [languageDirection, setLanguageDirection] = useState<LanguageDirection>('EN_JP');
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleLanguageChange = (event: SelectChangeEvent) => {
+        setLanguageDirection(event.target.value as LanguageDirection);
+    };
 
     const handleDragEnter = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -92,7 +104,11 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({ onJobCreated }) => {
         setSuccess(null);
 
         try {
-            const response = await translationService.uploadAudio(selectedFile, user.id);
+            // Parse language direction into source and target
+            const sourceLanguage = languageDirection === 'EN_JP' ? 'en' : 'ja';
+            const targetLanguage = languageDirection === 'EN_JP' ? 'ja' : 'en';
+
+            const response = await translationService.uploadAudio(selectedFile, user.id, sourceLanguage, targetLanguage);
             setSuccess(`Upload successful! Job ID: ${response.job_id}`);
             
             // Get initial job status
@@ -208,8 +224,8 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({ onJobCreated }) => {
                                     </Typography>
                                 </Box>
                             </Box>
-                            <IconButton 
-                                onClick={handleRemoveFile} 
+                            <IconButton
+                                onClick={handleRemoveFile}
                                 size="small"
                                 disabled={uploading}
                             >
@@ -219,6 +235,24 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({ onJobCreated }) => {
                     </Paper>
                 </Box>
             )}
+
+            {/* Language Direction Selector */}
+            <Box sx={{ mb: 2 }}>
+                <FormControl fullWidth size="small">
+                    <InputLabel id="language-direction-label">Translation Direction</InputLabel>
+                    <Select
+                        labelId="language-direction-label"
+                        id="language-direction"
+                        value={languageDirection}
+                        label="Translation Direction"
+                        onChange={handleLanguageChange}
+                        disabled={uploading}
+                    >
+                        <MenuItem value="EN_JP">English → Japanese</MenuItem>
+                        <MenuItem value="JP_EN">Japanese → English</MenuItem>
+                    </Select>
+                </FormControl>
+            </Box>
 
             {/* Upload Button */}
             <Box display="flex" justifyContent="center" mb={2}>

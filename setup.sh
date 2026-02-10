@@ -126,7 +126,7 @@ echo ""
 # =============================================================================
 # 1. Prerequisites Check
 # =============================================================================
-echo -e "${BLUE}[1/4] Checking prerequisites...${NC}"
+echo -e "${BLUE}[1/5] Checking prerequisites...${NC}"
 echo ""
 
 # Check Docker
@@ -171,10 +171,10 @@ echo ""
 # 2. Port Availability Check
 # =============================================================================
 if [ "$CHECK_ONLY" = true ]; then
-    echo -e "${BLUE}[2/4] Skipping port check (--check-only mode)${NC}"
+    echo -e "${BLUE}[2/5] Skipping port check (--check-only mode)${NC}"
     echo ""
 else
-    echo -e "${BLUE}[2/4] Checking port availability...${NC}"
+    echo -e "${BLUE}[2/5] Checking port availability...${NC}"
     echo ""
 
     PORTS=(
@@ -213,7 +213,7 @@ fi
 # =============================================================================
 # 3. Environment File Setup
 # =============================================================================
-echo -e "${BLUE}[3/4] Checking environment configuration...${NC}"
+echo -e "${BLUE}[3/5] Checking environment configuration...${NC}"
 echo ""
 
 ENV_FILE="translation-service/.env"
@@ -267,7 +267,7 @@ echo ""
 # =============================================================================
 # 4. Google Credentials Setup
 # =============================================================================
-echo -e "${BLUE}[4/4] Checking Google Cloud credentials...${NC}"
+echo -e "${BLUE}[4/5] Checking Google Cloud credentials...${NC}"
 echo ""
 
 GOOGLE_CREDS="translation-service/google-credentials.json"
@@ -317,6 +317,57 @@ fi
 echo ""
 
 # =============================================================================
+# 5. Frontend Microfrontends Build
+# =============================================================================
+echo -e "${BLUE}[5/5] Building frontend microfrontends...${NC}"
+echo ""
+
+# Check if Node.js is available
+if ! command -v node &> /dev/null; then
+    echo -e "${RED}  Node.js is not installed${NC}"
+    echo "       Node.js is required to build the frontend microfrontends."
+    echo "       Install via: brew install node"
+    echo "       Or download from: https://nodejs.org"
+    SETUP_ISSUES=$((SETUP_ISSUES + 1))
+else
+    echo -e "${GREEN}  Node.js is available${NC}"
+    node --version | sed 's/^/       /'
+
+    # Check if npm is available
+    if ! command -v npm &> /dev/null; then
+        echo -e "${RED}  npm is not available${NC}"
+        SETUP_ISSUES=$((SETUP_ISSUES + 1))
+    else
+        echo -e "${GREEN}  npm is available${NC}"
+        npm --version | sed 's/^/       /'
+        echo ""
+
+        if [ "$CHECK_ONLY" = true ]; then
+            echo -e "${YELLOW}  Skipping frontend build (--check-only mode)${NC}"
+        else
+            # Install dependencies and build all microfrontends
+            echo "  Installing dependencies for all microfrontends..."
+            if npm run install:all; then
+                echo -e "${GREEN}  Dependencies installed successfully${NC}"
+                echo ""
+                echo "  Building all microfrontends..."
+                if npm run build:all; then
+                    echo -e "${GREEN}  Frontend microfrontends built successfully${NC}"
+                else
+                    echo -e "${RED}  Failed to build microfrontends${NC}"
+                    SETUP_ISSUES=$((SETUP_ISSUES + 1))
+                fi
+            else
+                echo -e "${RED}  Failed to install dependencies${NC}"
+                SETUP_ISSUES=$((SETUP_ISSUES + 1))
+            fi
+        fi
+    fi
+fi
+
+echo ""
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo "=============================================="
@@ -335,8 +386,8 @@ if [ $SETUP_ISSUES -eq 0 ]; then
         echo "  To start the application:"
         echo "    docker-compose up --build"
         echo ""
-        echo "  Or start in background:"
-        echo "    docker-compose up -d --build"
+        echo "  Access the application at:"
+        echo "    http://localhost:3000"
         echo ""
 
         read -p "  Start the application now? (y/n): " -n 1 -r

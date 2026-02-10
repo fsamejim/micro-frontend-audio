@@ -32,7 +32,7 @@ Before running the service, you need API keys for the following services:
 ### 3. Google Cloud Service Account
 - Create a project in [Google Cloud Console](https://console.cloud.google.com)
 - Enable the [Text-to-Speech API](https://console.cloud.google.com/marketplace/product/google/texttospeech.googleapis.com)
-- Create a service account with Editor role
+- Create a service account with Editor role (You have to create a new service account. Can't download the existing key. )
 - Download the JSON key file
 - **Place the downloaded JSON file in the translation-service directory as `google-credentials.json`** at the root of the translation-service folder.
 
@@ -337,6 +337,7 @@ SINGLE_SPEAKER_VOICE_GENDER=male    # or 'female'
 ```
 
 ### Voice Options
+https://docs.cloud.google.com/text-to-speech/docs/list-voices-and-types
 
 **Male Voice (Default):**
 - Voice: `ja-JP-Wavenet-C` (High-quality Google Cloud voice)

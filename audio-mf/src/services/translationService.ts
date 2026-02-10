@@ -5,15 +5,24 @@ const TRANSLATION_API_URL = 'http://localhost:8001';
 
 export const translationService = {
     // Upload audio file and start translation
-    uploadAudio: async (file: File, userId: number): Promise<UploadResponse> => {
+    uploadAudio: async (
+        file: File,
+        userId: number,
+        sourceLanguage: string = 'en',
+        targetLanguage: string = 'ja'
+    ): Promise<UploadResponse> => {
         const formData = new FormData();
         formData.append('file', file);
 
-        const response = await axios.post(`${TRANSLATION_API_URL}/translation/upload?user_id=${userId}`, formData, {
-            headers: {
-                'Content-Type': 'multipart/form-data',
-            },
-        });
+        const response = await axios.post(
+            `${TRANSLATION_API_URL}/translation/upload?user_id=${userId}&source_language=${sourceLanguage}&target_language=${targetLanguage}`,
+            formData,
+            {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+            }
+        );
 
         return response.data;
     },
@@ -37,7 +46,7 @@ export const translationService = {
     },
 
     // Download a specific file from a completed job
-    downloadFile: async (jobId: string, fileType: 'english_transcript' | 'japanese_transcript' | 'japanese_audio'): Promise<Blob> => {
+    downloadFile: async (jobId: string, fileType: 'source_transcript' | 'target_transcript' | 'target_audio'): Promise<Blob> => {
         const response = await axios.get(`${TRANSLATION_API_URL}/translation/download/${jobId}/${fileType}`, {
             responseType: 'blob',
         });
@@ -45,25 +54,25 @@ export const translationService = {
     },
 
     // Helper function to download and save file
-    downloadAndSaveFile: async (jobId: string, fileType: 'english_transcript' | 'japanese_transcript' | 'japanese_audio', filename?: string): Promise<void> => {
+    downloadAndSaveFile: async (jobId: string, fileType: 'source_transcript' | 'target_transcript' | 'target_audio', filename?: string): Promise<void> => {
         try {
             const blob = await translationService.downloadFile(jobId, fileType);
-            
+
             // Create download link
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            
+
             // Set filename based on file type if not provided
             if (!filename) {
-                const extension = fileType === 'japanese_audio' ? 'mp3' : 'txt';
+                const extension = fileType.includes('audio') ? 'mp3' : 'txt';
                 filename = `${jobId}_${fileType}.${extension}`;
             }
-            
+
             link.download = filename;
             document.body.appendChild(link);
             link.click();
-            
+
             // Cleanup
             document.body.removeChild(link);
             window.URL.revokeObjectURL(url);

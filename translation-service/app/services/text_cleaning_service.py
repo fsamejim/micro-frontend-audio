@@ -15,7 +15,89 @@ class TextCleaningService:
         # Configure text processing parameters
         self.line_length_threshold = int(os.getenv("TEXT_LINE_LENGTH_THRESHOLD", "500"))
         logger.info("Text cleaning service initialized")
-    
+
+    async def clean_text(self, input_file: str, output_file: str, target_language: str = "ja") -> str:
+        """
+        Clean translated text by removing chunk markers and formatting artifacts
+
+        Args:
+            input_file: Path to merged transcript with chunk markers
+            output_file: Path to save cleaned transcript
+            target_language: Target language code ("ja" or "en")
+
+        Returns:
+            str: Path to cleaned transcript file
+        """
+        if target_language == "ja":
+            return await self.clean_japanese_text(input_file, output_file)
+        elif target_language == "en":
+            return await self.clean_english_text(input_file, output_file)
+        else:
+            raise ValueError(f"Unsupported target language: {target_language}")
+
+    async def clean_english_text(self, input_file: str, output_file: str) -> str:
+        """
+        Clean English translated text by removing chunk markers and formatting artifacts
+
+        Args:
+            input_file: Path to merged English transcript with chunk markers
+            output_file: Path to save cleaned English transcript
+
+        Returns:
+            str: Path to cleaned transcript file
+        """
+
+        try:
+            logger.info(f"Starting English text cleaning: {input_file}")
+
+            # Read the merged file
+            with open(input_file, 'r', encoding='utf-8') as f:
+                raw_text = f.read()
+
+            # Normalize line endings
+            raw_text = raw_text.replace('\r\n', '\n').replace('\r', '\n')
+
+            # Remove all chunk header lines like "=== TRANSLATION CHUNK chunk_001.txt ==="
+            raw_text = re.sub(r'^=== TRANSLATION CHUNK .*? ===\s*', '', raw_text, flags=re.MULTILINE)
+
+            # Split into speaker blocks, allowing both full-width and half-width colons
+            speaker_blocks = re.split(r'(?=Speaker [A-Z][:：])', raw_text)
+            cleaned_blocks = []
+
+            for block in speaker_blocks:
+                block = block.strip()
+                if not block:
+                    continue
+
+                # Merge lines inside each speaker's block
+                lines = block.splitlines()
+                merged = lines[0]  # Keep the speaker tag + first line
+                for line in lines[1:]:
+                    merged += " " + line.strip()  # Add space between merged lines for English
+                cleaned_blocks.append(merged)
+
+            if not cleaned_blocks:
+                logger.warning("No speaker blocks found. Check input file formatting.")
+                return output_file
+
+            # Join with two line breaks between speakers
+            final_output = "\n\n".join(cleaned_blocks)
+
+            # Save cleaned file
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(final_output)
+
+            logger.info(f"Cleaned English text saved: {output_file}")
+            logger.info(f"Cleaned {len(cleaned_blocks)} speaker blocks")
+
+            return output_file
+
+        except Exception as e:
+            logger.error(f"English text cleaning failed: {e}")
+            raise Exception(f"Text cleaning failed: {str(e)}")
+
     async def clean_japanese_text(self, input_file: str, output_file: str) -> str:
         """
         Clean Japanese translated text by removing chunk markers and formatting artifacts
