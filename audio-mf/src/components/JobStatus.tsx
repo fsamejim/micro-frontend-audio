@@ -42,7 +42,7 @@ export const JobStatus: React.FC<JobStatusProps> = ({ jobId, initialStatus, onJo
             const response = await translationService.getJobStatus(jobId);
             setJob(response);
             
-            if (response.status === 'completed' && onJobComplete) {
+            if (response.status === 'COMPLETED' && onJobComplete) {
                 onJobComplete(response);
             }
         } catch (err: any) {
@@ -54,14 +54,13 @@ export const JobStatus: React.FC<JobStatusProps> = ({ jobId, initialStatus, onJo
     };
 
     useEffect(() => {
-        if (!initialStatus) {
-            fetchJobStatus();
-        }
-    }, [jobId, initialStatus]);
+        // Always fetch fresh data on mount to ensure files array is populated
+        fetchJobStatus();
+    }, [jobId]);
 
     // Auto-refresh for active jobs
     useEffect(() => {
-        if (!job || job.status === 'completed' || job.status === 'failed') {
+        if (!job || job.status === 'COMPLETED' || job.status === 'FAILED') {
             return;
         }
 
@@ -74,30 +73,30 @@ export const JobStatus: React.FC<JobStatusProps> = ({ jobId, initialStatus, onJo
 
     const getStatusColor = (status: string): 'primary' | 'secondary' | 'success' | 'error' | 'warning' => {
         switch (status) {
-            case 'completed': return 'success';
-            case 'failed': return 'error';
-            case 'uploaded': return 'primary';
+            case 'COMPLETED': return 'success';
+            case 'FAILED': return 'error';
+            case 'UPLOADED': return 'primary';
             default: return 'warning';
         }
     };
 
     const getStatusText = (status: string): string => {
         switch (status) {
-            case 'uploaded': return 'Uploaded';
-            case 'preprocessing_audio_en': return 'Preprocessing Audio';
-            case 'transcribing_en': return 'Transcribing';
-            case 'formatting_text_en': return 'Formatting Text';
-            case 'translating_chunks_jp': return 'Translating';
-            case 'merging_chunks_jp': return 'Merging Translation';
-            case 'cleaning_text_jp': return 'Cleaning Text';
-            case 'generating_audio_jp': return 'Generating Audio';
-            case 'completed': return 'Completed';
-            case 'failed': return 'Failed';
+            case 'UPLOADED': return 'Uploaded';
+            case 'PREPROCESSING_AUDIO': return 'Preprocessing Audio';
+            case 'TRANSCRIBING_SOURCE': return 'Transcribing';
+            case 'FORMATTING_SOURCE_TEXT': return 'Formatting Text';
+            case 'TRANSLATING_TO_TARGET': return 'Translating';
+            case 'MERGING_TARGET_CHUNKS': return 'Merging Translation';
+            case 'CLEANING_TARGET_TEXT': return 'Cleaning Text';
+            case 'GENERATING_TARGET_AUDIO': return 'Generating Audio';
+            case 'COMPLETED': return 'Completed';
+            case 'FAILED': return 'Failed';
             default: return status;
         }
     };
 
-    const handleDownload = async (fileType: 'english_transcript' | 'japanese_transcript' | 'japanese_audio') => {
+    const handleDownload = async (fileType: 'source_transcript' | 'target_transcript' | 'target_audio') => {
         if (!job) return;
 
         setDownloadingFile(fileType);
@@ -112,9 +111,9 @@ export const JobStatus: React.FC<JobStatusProps> = ({ jobId, initialStatus, onJo
 
     const getFileTypeLabel = (fileType: string): string => {
         switch (fileType) {
-            case 'english_transcript': return 'English Transcript';
-            case 'japanese_transcript': return 'Japanese Transcript';
-            case 'japanese_audio': return 'Japanese Audio';
+            case 'source_transcript': return 'Source Transcript';
+            case 'target_transcript': return 'Target Transcript';
+            case 'target_audio': return 'Target Audio';
             default: return fileType;
         }
     };

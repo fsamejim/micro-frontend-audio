@@ -145,24 +145,35 @@ async def health_check():
 async def upload_audio_file(
     background_tasks: BackgroundTasks,
     user_id: int,
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    source_language: str = "en",
+    target_language: str = "ja"
 ):
     """Upload audio file and start translation job"""
-    
+
+    # Validate language parameters
+    valid_languages = ["en", "ja"]
+    if source_language not in valid_languages:
+        raise HTTPException(status_code=400, detail=f"Invalid source_language. Supported: {valid_languages}")
+    if target_language not in valid_languages:
+        raise HTTPException(status_code=400, detail=f"Invalid target_language. Supported: {valid_languages}")
+    if source_language == target_language:
+        raise HTTPException(status_code=400, detail="source_language and target_language must be different")
+
     # Validate file type
     if not file.filename.lower().endswith(('.mp3', '.wav', '.m4a', '.flac')):
         raise HTTPException(status_code=400, detail="Invalid file type. Supported: mp3, wav, m4a, flac")
-    
+
     # Generate job ID
     job_id = str(uuid.uuid4())
-    
+
     # Create uploads directory
     upload_dir = "/app/uploads"
     os.makedirs(upload_dir, exist_ok=True)
-    
+
     # Save uploaded file
     file_path = os.path.join(upload_dir, f"{job_id}_{file.filename}")
-    
+
     try:
         async with aiofiles.open(file_path, 'wb') as f:
             content = await file.read()
@@ -170,27 +181,31 @@ async def upload_audio_file(
     except Exception as e:
         logger.error(f"Failed to save file: {e}")
         raise HTTPException(status_code=500, detail="Failed to save uploaded file")
-    
+
     # Create translation job
     job = TranslationJob(
         job_id=job_id,
         user_id=user_id,
         original_filename=file.filename,
         original_file_path=file_path,
-        status=JobStatus.UPLOADED_EN,
-        created_at=datetime.now()
+        status=JobStatus.UPLOADED,
+        created_at=datetime.now(),
+        source_language=source_language,
+        target_language=target_language
     )
-    
+
     jobs_storage[job_id] = job
     save_job_to_disk(job)  # Persist to JSON file
 
+    logger.info(f"Created job {job_id} with translation direction: {source_language} -> {target_language}")
+
     # Start processing in background
     background_tasks.add_task(process_translation_job, job_id)
-    
+
     return {
         "job_id": job_id,
         "status": "uploaded",
-        "message": "File uploaded successfully. Processing started."
+        "message": f"File uploaded successfully. Processing started ({source_language.upper()} → {target_language.upper()})."
     }
 
 @app.get("/translation/status/{job_id}")
@@ -211,11 +226,11 @@ async def get_job_status(job_id: str) -> JobStatusResponse:
     
     files = []
     if job.formatted_transcript_path and os.path.exists(job.formatted_transcript_path):
-        files.append({"type": "english_transcript", "available": True})
-    if job.clean_japanese_path and os.path.exists(job.clean_japanese_path):
-        files.append({"type": "japanese_transcript", "available": True})
-    if job.final_japanese_audio_path and os.path.exists(job.final_japanese_audio_path):
-        files.append({"type": "japanese_audio", "available": True})
+        files.append({"type": "source_transcript", "available": True})
+    if job.clean_target_path and os.path.exists(job.clean_target_path):
+        files.append({"type": "target_transcript", "available": True})
+    if job.final_target_audio_path and os.path.exists(job.final_target_audio_path):
+        files.append({"type": "target_audio", "available": True})
     
     return JobStatusResponse(
         job_id=job_id,
@@ -240,25 +255,27 @@ async def download_file(job_id: str, file_type: str):
             raise HTTPException(status_code=404, detail="Job not found")
 
     job = jobs_storage[job_id]
-    
+
     file_path = None
     media_type = "text/plain"
-    
-    if file_type == "english_transcript":
+
+    # Support both old (english_transcript, japanese_transcript, japanese_audio)
+    # and new (source_transcript, target_transcript, target_audio) file types for backwards compatibility
+    if file_type in ["english_transcript", "source_transcript"]:
         file_path = job.formatted_transcript_path
         media_type = "text/plain"
-    elif file_type == "japanese_transcript":
-        file_path = job.clean_japanese_path
+    elif file_type in ["japanese_transcript", "target_transcript"]:
+        file_path = job.clean_target_path
         media_type = "text/plain"
-    elif file_type == "japanese_audio":
-        file_path = job.final_japanese_audio_path
+    elif file_type in ["japanese_audio", "target_audio"]:
+        file_path = job.final_target_audio_path
         media_type = "audio/mpeg"
     else:
         raise HTTPException(status_code=400, detail="Invalid file type")
-    
+
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
-    
+
     filename = os.path.basename(file_path)
     return FileResponse(file_path, media_type=media_type, filename=filename)
 
@@ -304,13 +321,13 @@ async def simulate_job_failure(job_id: str, failure_step: str):
 
     # Map failure steps to status enums
     failure_mapping = {
-        "preprocessing": JobStatus.FAILED_PREPROCESSING_AUDIO_EN,
-        "transcription": JobStatus.FAILED_TRANSCRIBING_EN,
-        "formatting": JobStatus.FAILED_FORMATTING_TEXT_EN,
-        "translation": JobStatus.FAILED_TRANSLATING_CHUNKS_JP,
-        "merging": JobStatus.FAILED_MERGING_CHUNKS_JP,
-        "cleaning": JobStatus.FAILED_CLEANING_TEXT_JP,
-        "audio_generation": JobStatus.FAILED_GENERATING_AUDIO_JP,
+        "preprocessing": JobStatus.FAILED_PREPROCESSING_AUDIO,
+        "transcription": JobStatus.FAILED_TRANSCRIBING_SOURCE,
+        "formatting": JobStatus.FAILED_FORMATTING_SOURCE_TEXT,
+        "translation": JobStatus.FAILED_TRANSLATING_TO_TARGET,
+        "merging": JobStatus.FAILED_MERGING_TARGET_CHUNKS,
+        "cleaning": JobStatus.FAILED_CLEANING_TARGET_TEXT,
+        "audio_generation": JobStatus.FAILED_GENERATING_TARGET_AUDIO,
         "generic": JobStatus.FAILED
     }
     
@@ -368,13 +385,13 @@ async def retry_job(job_id: str, background_tasks: BackgroundTasks):
     # Only allow retry for failed jobs (any failure status)
     failed_status_values = [
         "FAILED",
-        "FAILED_PREPROCESSING_AUDIO_EN",
-        "FAILED_TRANSCRIBING_EN",
-        "FAILED_FORMATTING_TEXT_EN",
-        "FAILED_TRANSLATING_CHUNKS_JP",
-        "FAILED_MERGING_CHUNKS_JP",
-        "FAILED_CLEANING_TEXT_JP",
-        "FAILED_GENERATING_AUDIO_JP"
+        "FAILED_PREPROCESSING_AUDIO",
+        "FAILED_TRANSCRIBING_SOURCE",
+        "FAILED_FORMATTING_SOURCE_TEXT",
+        "FAILED_TRANSLATING_TO_TARGET",
+        "FAILED_MERGING_TARGET_CHUNKS",
+        "FAILED_CLEANING_TARGET_TEXT",
+        "FAILED_GENERATING_TARGET_AUDIO"
     ]
 
     current_status = get_status_value(job.status)
@@ -401,47 +418,47 @@ def determine_resume_point(job: TranslationJob):
     # If we have a specific failure status, resume from that exact step
     # Use string values for comparison to handle both enum and string status
     failure_to_resume_map = {
-        "FAILED_PREPROCESSING_AUDIO_EN": JobStatus.PREPROCESSING_AUDIO_EN,
-        "FAILED_TRANSCRIBING_EN": JobStatus.TRANSCRIBING_EN,
-        "FAILED_FORMATTING_TEXT_EN": JobStatus.FORMATTING_TEXT_EN,
-        "FAILED_TRANSLATING_CHUNKS_JP": JobStatus.TRANSLATING_CHUNKS_JP,
-        "FAILED_MERGING_CHUNKS_JP": JobStatus.MERGING_CHUNKS_JP,
-        "FAILED_CLEANING_TEXT_JP": JobStatus.CLEANING_TEXT_JP,
-        "FAILED_GENERATING_AUDIO_JP": JobStatus.GENERATING_AUDIO_JP,
+        "FAILED_PREPROCESSING_AUDIO": JobStatus.PREPROCESSING_AUDIO,
+        "FAILED_TRANSCRIBING_SOURCE": JobStatus.TRANSCRIBING_SOURCE,
+        "FAILED_FORMATTING_SOURCE_TEXT": JobStatus.FORMATTING_SOURCE_TEXT,
+        "FAILED_TRANSLATING_TO_TARGET": JobStatus.TRANSLATING_TO_TARGET,
+        "FAILED_MERGING_TARGET_CHUNKS": JobStatus.MERGING_TARGET_CHUNKS,
+        "FAILED_CLEANING_TARGET_TEXT": JobStatus.CLEANING_TARGET_TEXT,
+        "FAILED_GENERATING_TARGET_AUDIO": JobStatus.GENERATING_TARGET_AUDIO,
     }
 
     current_status = get_status_value(job.status)
     if current_status in failure_to_resume_map:
         return failure_to_resume_map[current_status]
-    
+
     # For generic FAILED status or other cases, use file-based detection
     # Check files in reverse order of creation
-    if job.final_japanese_audio_path and os.path.exists(job.final_japanese_audio_path):
+    if job.final_target_audio_path and os.path.exists(job.final_target_audio_path):
         return JobStatus.COMPLETED  # Job is actually complete
-    
-    if job.clean_japanese_path and os.path.exists(job.clean_japanese_path):
-        return JobStatus.GENERATING_AUDIO_JP
-    
-    if job.merged_japanese_path and os.path.exists(job.merged_japanese_path):
-        return JobStatus.CLEANING_TEXT_JP
-    
+
+    if job.clean_target_path and os.path.exists(job.clean_target_path):
+        return JobStatus.GENERATING_TARGET_AUDIO
+
+    if job.merged_target_path and os.path.exists(job.merged_target_path):
+        return JobStatus.CLEANING_TARGET_TEXT
+
     if job.translation_chunks_dir and os.path.exists(job.translation_chunks_dir):
-        return JobStatus.MERGING_CHUNKS_JP
-    
+        return JobStatus.MERGING_TARGET_CHUNKS
+
     if job.formatted_transcript_path and os.path.exists(job.formatted_transcript_path):
-        return JobStatus.TRANSLATING_CHUNKS_JP
-    
+        return JobStatus.TRANSLATING_TO_TARGET
+
     if job.raw_transcript_path and os.path.exists(job.raw_transcript_path):
-        return JobStatus.FORMATTING_TEXT_EN
-    
+        return JobStatus.FORMATTING_SOURCE_TEXT
+
     if job.chunks_dir and os.path.exists(job.chunks_dir):
-        return JobStatus.TRANSCRIBING_EN
-    
+        return JobStatus.TRANSCRIBING_SOURCE
+
     if job.processed_audio_dir and os.path.exists(job.processed_audio_dir):
-        return JobStatus.PREPROCESSING_AUDIO_EN
-    
+        return JobStatus.PREPROCESSING_AUDIO
+
     # Start from the beginning
-    return JobStatus.UPLOADED_EN
+    return JobStatus.UPLOADED
 
 async def process_translation_job(job_id: str, is_retry: bool = False):
     """Background task to process translation job following the 3-step workflow"""
@@ -455,7 +472,7 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
             logger.info(f"Retrying translation job {job_id} from step {resume_from.value}")
             job.message = f"Retrying from step: {resume_from.value}"
         else:
-            resume_from = JobStatus.UPLOADED_EN
+            resume_from = JobStatus.UPLOADED
             logger.info(f"Starting translation job {job_id}")
         
         # Initialize service instances
@@ -467,21 +484,21 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
         cleaning_service = TextCleaningService()
         tts_service = TTSService()
         
-        # === STEP 1: EXTRACT ENGLISH TEXT ===
-        
+        # === STEP 1: EXTRACT SOURCE TEXT ===
+
         # Step 1.1: Preprocess Audio
-        if resume_from in [JobStatus.UPLOADED_EN, JobStatus.PREPROCESSING_AUDIO_EN]:
+        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO]:
             try:
-                job.status = JobStatus.PREPROCESSING_AUDIO_EN
+                job.status = JobStatus.PREPROCESSING_AUDIO
                 job.progress = 5
                 job.message = "Preprocessing audio - cleaning and creating chunks..."
-                
+
                 processed_dir = f"/app/outputs/{job_id}/processed"
-                
+
                 cleaned_audio_path, chunks_dir = await preprocessing_service.preprocess_audio(
                     job.original_file_path, processed_dir
                 )
-                
+
                 job.processed_audio_dir = processed_dir
                 job.chunks_dir = chunks_dir
                 job.progress = 15
@@ -489,43 +506,45 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 logger.info(f"Job {job_id}: Audio preprocessing completed")
             except Exception as e:
                 logger.error(f"Job {job_id}: Audio preprocessing failed: {e}")
-                job.status = JobStatus.FAILED_PREPROCESSING_AUDIO_EN
+                job.status = JobStatus.FAILED_PREPROCESSING_AUDIO
                 job.error_message = str(e)
                 job.message = f"Audio preprocessing failed: {str(e)}"
                 save_job_to_disk(job)
                 return
         
         # Step 1.2: Transcribe with AssemblyAI
-        if resume_from in [JobStatus.UPLOADED_EN, JobStatus.PREPROCESSING_AUDIO_EN, JobStatus.TRANSCRIBING_EN]:
+        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE]:
             try:
-                job.status = JobStatus.TRANSCRIBING_EN
+                job.status = JobStatus.TRANSCRIBING_SOURCE
                 job.progress = 20
-                job.message = "Transcribing English audio with speaker diarization..."
-                
-                raw_transcript_path = f"/app/outputs/{job_id}/transcript_en_raw.txt"
-                
-                await transcription_service.transcribe_chunks(job.chunks_dir, raw_transcript_path)
+                source_lang_name = "English" if job.source_language == "en" else "Japanese"
+                job.message = f"Transcribing {source_lang_name} audio with speaker diarization..."
+
+                raw_transcript_path = f"/app/outputs/{job_id}/transcript_{job.source_language}_raw.txt"
+
+                await transcription_service.transcribe_chunks(job.chunks_dir, raw_transcript_path, job.source_language)
                 job.raw_transcript_path = raw_transcript_path
                 job.progress = 40
                 save_job_to_disk(job)
-                logger.info(f"Job {job_id}: Transcription completed")
+                logger.info(f"Job {job_id}: Transcription completed ({job.source_language})")
             except Exception as e:
                 logger.error(f"Job {job_id}: Transcription failed: {e}")
-                job.status = JobStatus.FAILED_TRANSCRIBING_EN
+                job.status = JobStatus.FAILED_TRANSCRIBING_SOURCE
                 job.error_message = str(e)
                 job.message = f"Transcription failed: {str(e)}"
                 save_job_to_disk(job)
                 return
         
         # Step 1.3: Format Text
-        if resume_from in [JobStatus.UPLOADED_EN, JobStatus.PREPROCESSING_AUDIO_EN, JobStatus.TRANSCRIBING_EN, JobStatus.FORMATTING_TEXT_EN]:
+        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT]:
             try:
-                job.status = JobStatus.FORMATTING_TEXT_EN
+                job.status = JobStatus.FORMATTING_SOURCE_TEXT
                 job.progress = 45
-                job.message = "Formatting English transcript with speaker tags..."
-                
-                formatted_transcript_path = f"/app/outputs/{job_id}/transcript_en_formatted.txt"
-                
+                source_lang_name = "English" if job.source_language == "en" else "Japanese"
+                job.message = f"Formatting {source_lang_name} transcript with speaker tags..."
+
+                formatted_transcript_path = f"/app/outputs/{job_id}/transcript_{job.source_language}_formatted.txt"
+
                 await formatting_service.format_transcript(job.raw_transcript_path, formatted_transcript_path)
                 job.formatted_transcript_path = formatted_transcript_path
                 job.progress = 50
@@ -533,106 +552,117 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 logger.info(f"Job {job_id}: Text formatting completed")
             except Exception as e:
                 logger.error(f"Job {job_id}: Text formatting failed: {e}")
-                job.status = JobStatus.FAILED_FORMATTING_TEXT_EN
+                job.status = JobStatus.FAILED_FORMATTING_SOURCE_TEXT
                 job.error_message = str(e)
                 job.message = f"Text formatting failed: {str(e)}"
                 save_job_to_disk(job)
                 return
         
-        # === STEP 2: TRANSLATE TO JAPANESE ===
-        
+        # === STEP 2: TRANSLATE TO TARGET LANGUAGE ===
+
         # Step 2.1: Translate in Chunks
-        if resume_from in [JobStatus.UPLOADED_EN, JobStatus.PREPROCESSING_AUDIO_EN, JobStatus.TRANSCRIBING_EN, JobStatus.FORMATTING_TEXT_EN, JobStatus.TRANSLATING_CHUNKS_JP]:
+        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET]:
             try:
-                job.status = JobStatus.TRANSLATING_CHUNKS_JP
+                job.status = JobStatus.TRANSLATING_TO_TARGET
                 job.progress = 55
-                job.message = "Translating English to Japanese in chunks..."
-                
+                source_lang_name = "English" if job.source_language == "en" else "Japanese"
+                target_lang_name = "Japanese" if job.target_language == "ja" else "English"
+                job.message = f"Translating {source_lang_name} to {target_lang_name} in chunks..."
+
                 translation_chunks_dir = f"/app/outputs/{job_id}/translation_chunks"
-                
-                await translation_service.translate_to_japanese(job.formatted_transcript_path, translation_chunks_dir)
+
+                await translation_service.translate_text(
+                    job.formatted_transcript_path,
+                    translation_chunks_dir,
+                    job.source_language,
+                    job.target_language
+                )
                 job.translation_chunks_dir = translation_chunks_dir
                 job.progress = 70
                 save_job_to_disk(job)
-                logger.info(f"Job {job_id}: Translation completed")
+                logger.info(f"Job {job_id}: Translation completed ({job.source_language} -> {job.target_language})")
             except Exception as e:
                 logger.error(f"Job {job_id}: Translation failed: {e}")
-                job.status = JobStatus.FAILED_TRANSLATING_CHUNKS_JP
+                job.status = JobStatus.FAILED_TRANSLATING_TO_TARGET
                 job.error_message = str(e)
                 job.message = f"Translation failed: {str(e)}"
                 save_job_to_disk(job)
                 return
         
         # Step 2.2: Merge Chunks
-        if resume_from in [JobStatus.UPLOADED_EN, JobStatus.PREPROCESSING_AUDIO_EN, JobStatus.TRANSCRIBING_EN, JobStatus.FORMATTING_TEXT_EN, JobStatus.TRANSLATING_CHUNKS_JP, JobStatus.MERGING_CHUNKS_JP]:
+        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET, JobStatus.MERGING_TARGET_CHUNKS]:
             try:
-                job.status = JobStatus.MERGING_CHUNKS_JP
+                job.status = JobStatus.MERGING_TARGET_CHUNKS
                 job.progress = 75
-                job.message = "Merging Japanese translation chunks..."
-                
-                merged_japanese_path = f"/app/outputs/{job_id}/transcript_ja_merged.txt"
-                
-                await merging_service.merge_translation_chunks(job.translation_chunks_dir, merged_japanese_path)
-                job.merged_japanese_path = merged_japanese_path
+                target_lang_name = "Japanese" if job.target_language == "ja" else "English"
+                job.message = f"Merging {target_lang_name} translation chunks..."
+
+                merged_path = f"/app/outputs/{job_id}/transcript_{job.target_language}_merged.txt"
+
+                await merging_service.merge_translation_chunks(job.translation_chunks_dir, merged_path)
+                job.merged_target_path = merged_path
                 job.progress = 80
                 save_job_to_disk(job)
                 logger.info(f"Job {job_id}: Chunk merging completed")
             except Exception as e:
                 logger.error(f"Job {job_id}: Chunk merging failed: {e}")
-                job.status = JobStatus.FAILED_MERGING_CHUNKS_JP
+                job.status = JobStatus.FAILED_MERGING_TARGET_CHUNKS
                 job.error_message = str(e)
                 job.message = f"Chunk merging failed: {str(e)}"
                 save_job_to_disk(job)
                 return
         
-        # Step 2.3: Clean Japanese Text
-        if resume_from in [JobStatus.UPLOADED_EN, JobStatus.PREPROCESSING_AUDIO_EN, JobStatus.TRANSCRIBING_EN, JobStatus.FORMATTING_TEXT_EN, JobStatus.TRANSLATING_CHUNKS_JP, JobStatus.MERGING_CHUNKS_JP, JobStatus.CLEANING_TEXT_JP]:
+        # Step 2.3: Clean Target Text
+        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET, JobStatus.MERGING_TARGET_CHUNKS, JobStatus.CLEANING_TARGET_TEXT]:
             try:
-                job.status = JobStatus.CLEANING_TEXT_JP
+                job.status = JobStatus.CLEANING_TARGET_TEXT
                 job.progress = 82
-                job.message = "Cleaning Japanese text - removing artifacts..."
-                
-                clean_japanese_path = f"/app/outputs/{job_id}/transcript_ja_clean.txt"
-                
-                await cleaning_service.clean_japanese_text(job.merged_japanese_path, clean_japanese_path)
-                job.clean_japanese_path = clean_japanese_path
+                target_lang_name = "Japanese" if job.target_language == "ja" else "English"
+                job.message = f"Cleaning {target_lang_name} text - removing artifacts..."
+
+                clean_path = f"/app/outputs/{job_id}/transcript_{job.target_language}_clean.txt"
+
+                await cleaning_service.clean_text(job.merged_target_path, clean_path, job.target_language)
+                job.clean_target_path = clean_path
                 job.progress = 85
                 save_job_to_disk(job)
                 logger.info(f"Job {job_id}: Text cleaning completed")
             except Exception as e:
                 logger.error(f"Job {job_id}: Text cleaning failed: {e}")
-                job.status = JobStatus.FAILED_CLEANING_TEXT_JP
+                job.status = JobStatus.FAILED_CLEANING_TARGET_TEXT
                 job.error_message = str(e)
                 job.message = f"Text cleaning failed: {str(e)}"
                 save_job_to_disk(job)
                 return
         
-        # === STEP 3: GENERATE JAPANESE AUDIO ===
-        
+        # === STEP 3: GENERATE TARGET AUDIO ===
+
         # Step 3.1: Generate Audio with Google TTS
-        if resume_from in [JobStatus.UPLOADED_EN, JobStatus.PREPROCESSING_AUDIO_EN, JobStatus.TRANSCRIBING_EN, JobStatus.FORMATTING_TEXT_EN, JobStatus.TRANSLATING_CHUNKS_JP, JobStatus.MERGING_CHUNKS_JP, JobStatus.CLEANING_TEXT_JP, JobStatus.GENERATING_AUDIO_JP]:
+        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET, JobStatus.MERGING_TARGET_CHUNKS, JobStatus.CLEANING_TARGET_TEXT, JobStatus.GENERATING_TARGET_AUDIO]:
             try:
-                job.status = JobStatus.GENERATING_AUDIO_JP
+                job.status = JobStatus.GENERATING_TARGET_AUDIO
                 job.progress = 90
-                job.message = "Generating Japanese audio with speaker voices..."
-                
+                target_lang_name = "Japanese" if job.target_language == "ja" else "English"
+                job.message = f"Generating {target_lang_name} audio with speaker voices..."
+
                 audio_output_dir = f"/app/outputs/{job_id}/audio_segments"
-                final_audio_path = f"/app/outputs/{job_id}/full_audio_jp.mp3"
-                
-                await tts_service.generate_japanese_audio(
-                    job.clean_japanese_path, 
-                    audio_output_dir, 
-                    final_audio_path
+                final_audio_path = f"/app/outputs/{job_id}/full_audio_{job.target_language}.mp3"
+
+                await tts_service.generate_audio(
+                    job.clean_target_path,
+                    audio_output_dir,
+                    final_audio_path,
+                    job.target_language
                 )
-                
+
                 job.audio_output_dir = audio_output_dir
-                job.final_japanese_audio_path = final_audio_path
+                job.final_target_audio_path = final_audio_path
                 job.progress = 100
                 save_job_to_disk(job)
-                logger.info(f"Job {job_id}: Audio generation completed")
+                logger.info(f"Job {job_id}: Audio generation completed ({job.target_language})")
             except Exception as e:
                 logger.error(f"Job {job_id}: Audio generation failed: {e}")
-                job.status = JobStatus.FAILED_GENERATING_AUDIO_JP
+                job.status = JobStatus.FAILED_GENERATING_TARGET_AUDIO
                 job.error_message = str(e)
                 job.message = f"Audio generation failed: {str(e)}"
                 save_job_to_disk(job)

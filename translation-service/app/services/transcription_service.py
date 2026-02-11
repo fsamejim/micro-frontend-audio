@@ -40,20 +40,21 @@ class TranscriptionService:
         
         logger.info(f"AssemblyAI service initialized with model: {model_name}")
     
-    async def transcribe_chunks(self, chunks_dir: str, output_file: str) -> str:
+    async def transcribe_chunks(self, chunks_dir: str, output_file: str, language_code: str = "en") -> str:
         """
         Transcribe all audio chunks and combine into single transcript
-        
+
         Args:
             chunks_dir: Directory containing audio chunks
             output_file: Path to save the combined transcript
-            
+            language_code: Language code for transcription ("en" or "ja")
+
         Returns:
             str: Path to the transcript file
         """
-        
+
         try:
-            logger.info(f"Starting transcription of chunks in: {chunks_dir}")
+            logger.info(f"Starting transcription of chunks in: {chunks_dir} (language: {language_code})")
             
             # Get all chunk files and sort them
             chunk_files = sorted([
@@ -70,11 +71,14 @@ class TranscriptionService:
             # Check if single speaker mode is forced
             force_single_mode = os.getenv("FORCE_SINGLE_SPEAKER_MODE", "false").lower() == "true"
             use_diarization = not force_single_mode and os.getenv("USE_SPEAKER_DIARIZATION", "true").lower() == "true"
-            
+
             config = aai.TranscriptionConfig(
                 speech_model=self.speech_model,
-                speaker_labels=use_diarization
+                speaker_labels=use_diarization,
+                language_code=language_code
             )
+
+            logger.info(f"Transcription config: model={self.speech_model}, diarization={use_diarization}, language={language_code}")
             
             if force_single_mode:
                 logger.info("🔒 FORCE_SINGLE_SPEAKER_MODE enabled - disabling speaker diarization")

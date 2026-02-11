@@ -31,8 +31,8 @@ class TTSService:
             logger.error(f"Failed to initialize TTS client: {e}")
             raise
         
-        # Voice configurations for different speakers
-        self.speaker_voices = {
+        # Japanese voice configurations for different speakers
+        self.japanese_speaker_voices = {
             "Speaker A": {
                 "name": "ja-JP-Standard-C",  # Male voice
                 "gender": texttospeech.SsmlVoiceGender.MALE
@@ -54,16 +54,55 @@ class TTSService:
                 "gender": texttospeech.SsmlVoiceGender.FEMALE
             }
         }
-        
-        # Single speaker voice configurations (for FORCE_SINGLE_SPEAKER_MODE)
-        self.single_speaker_voices = {
-            "male": {
-                "name": "ja-JP-Wavenet-C",  # High quality male voice
+
+        # English voice configurations for different speakers
+        self.english_speaker_voices = {
+            "Speaker A": {
+                "name": "en-US-Standard-B",  # Male voice
                 "gender": texttospeech.SsmlVoiceGender.MALE
             },
-            "female": {
-                "name": "ja-JP-Wavenet-A",  # High quality female voice
+            "Speaker B": {
+                "name": "en-US-Standard-D",  # Male voice (different)
+                "gender": texttospeech.SsmlVoiceGender.MALE
+            },
+            "Speaker C": {
+                "name": "en-US-Standard-C",  # Female voice
                 "gender": texttospeech.SsmlVoiceGender.FEMALE
+            },
+            "Speaker D": {
+                "name": "en-US-Wavenet-B",  # High quality male
+                "gender": texttospeech.SsmlVoiceGender.MALE
+            },
+            "Speaker E": {
+                "name": "en-US-Wavenet-C",  # High quality female
+                "gender": texttospeech.SsmlVoiceGender.FEMALE
+            }
+        }
+
+        # Backwards compatibility alias
+        self.speaker_voices = self.japanese_speaker_voices
+
+        # Single speaker voice configurations (for FORCE_SINGLE_SPEAKER_MODE)
+        self.single_speaker_voices = {
+            "ja": {
+                "male": {
+                    "name": "ja-JP-Wavenet-C",  # High quality Japanese male voice
+                    "gender": texttospeech.SsmlVoiceGender.MALE
+                },
+                "female": {
+                    "name": "ja-JP-Wavenet-A",  # High quality Japanese female voice
+                    "gender": texttospeech.SsmlVoiceGender.FEMALE
+                }
+            },
+            "en": {
+                "male": {
+                    "name": "en-US-Wavenet-B",  # High quality English male voice
+                    "gender": texttospeech.SsmlVoiceGender.MALE
+                },
+                "female": {
+                    "name": "en-US-Wavenet-C",  # High quality English female voice
+                    "gender": texttospeech.SsmlVoiceGender.FEMALE
+                }
             }
         }
         
@@ -84,21 +123,23 @@ class TTSService:
         self.retry_base_delay = float(os.getenv("TTS_RETRY_BASE_DELAY", "2"))
         self.max_text_length = int(os.getenv("TTS_MAX_LENGTH", "2000"))  # Character limit per TTS call
         
-    async def generate_japanese_audio(self, input_file: str, output_dir: str, merged_file: str) -> str:
+    async def generate_audio(self, input_file: str, output_dir: str, merged_file: str, language_code: str = "ja") -> str:
         """
-        Generate Japanese audio from cleaned Japanese text
-        
+        Generate audio from cleaned transcript text
+
         Args:
-            input_file: Path to cleaned Japanese transcript
+            input_file: Path to cleaned transcript
             output_dir: Directory to save individual audio chunks
             merged_file: Path to save final merged audio file
-            
+            language_code: Target language code ("ja" or "en")
+
         Returns:
             str: Path to final merged audio file
         """
-        
+
         try:
-            logger.info(f"Starting Japanese audio generation: {input_file}")
+            lang_name = "Japanese" if language_code == "ja" else "English"
+            logger.info(f"Starting {lang_name} audio generation: {input_file}")
             
             # Create output directory
             os.makedirs(output_dir, exist_ok=True)
@@ -127,10 +168,10 @@ class TTSService:
                     continue
                 
                 logger.info(f"🔊 Generating audio for segment {i:04d} ({speaker})")
-                
+
                 try:
                     # Generate TTS for this segment
-                    await self._generate_segment_audio(text, speaker, output_file)
+                    await self._generate_segment_audio(text, speaker, output_file, language_code)
                     audio_files.append(output_file)
                     
                     # Rate limiting delay
@@ -145,14 +186,28 @@ class TTSService:
             # Merge all audio files
             if audio_files:
                 await self._merge_audio_files(audio_files, merged_file)
-                logger.info(f"🎉 Japanese audio generation completed: {merged_file}")
+                logger.info(f"🎉 {lang_name} audio generation completed: {merged_file}")
                 return merged_file
             else:
                 raise Exception("No audio files were generated")
-                
+
         except Exception as e:
-            logger.error(f"Japanese audio generation failed: {e}")
+            logger.error(f"{lang_name} audio generation failed: {e}")
             raise Exception(f"Audio generation failed: {str(e)}")
+
+    async def generate_japanese_audio(self, input_file: str, output_dir: str, merged_file: str) -> str:
+        """
+        Generate Japanese audio from cleaned Japanese text (backwards compatibility wrapper)
+
+        Args:
+            input_file: Path to cleaned Japanese transcript
+            output_dir: Directory to save individual audio chunks
+            merged_file: Path to save final merged audio file
+
+        Returns:
+            str: Path to final merged audio file
+        """
+        return await self.generate_audio(input_file, output_dir, merged_file, "ja")
     
     async def _parse_dialogue_segments(self, input_file: str) -> List[Dict]:
         """Parse the cleaned Japanese dialogue into segments"""
@@ -183,80 +238,92 @@ class TTSService:
         
         return segments
     
-    def _split_text_by_length(self, text: str, max_length: int = None) -> List[str]:
+    def _split_text_by_length(self, text: str, language_code: str = "ja", max_length: int = None) -> List[str]:
         """Split text into chunks at sentence boundaries, matching your working version"""
         if max_length is None:
             max_length = self.max_text_length
-            
+
         chunks = []
         current_chunk = ""
-        
-        # Split by Japanese sentence endings
-        for sentence in re.split(r'(?<=[。！？\n])', text):
+
+        # Split by sentence endings based on language
+        if language_code == "ja":
+            # Japanese sentence endings
+            sentence_pattern = r'(?<=[。！？\n])'
+        else:
+            # English sentence endings
+            sentence_pattern = r'(?<=[.!?\n])\s*'
+
+        for sentence in re.split(sentence_pattern, text):
             sentence = sentence.strip()
             if not sentence:
                 continue
-            
-            test_chunk = current_chunk + sentence
+
+            test_chunk = current_chunk + (" " if current_chunk and language_code == "en" else "") + sentence
             if len(test_chunk.encode("utf-8")) > max_length:
                 if current_chunk:
                     chunks.append(current_chunk.strip())
                 current_chunk = sentence
             else:
                 current_chunk = test_chunk
-        
+
         if current_chunk:
             chunks.append(current_chunk.strip())
-        
+
         return chunks
     
-    async def _generate_segment_audio(self, text: str, speaker: str, output_file: str):
+    async def _generate_segment_audio(self, text: str, speaker: str, output_file: str, language_code: str = "ja"):
         """Generate TTS audio for a single segment, splitting long text if needed"""
-        
+
         # Split long text into smaller chunks
-        text_chunks = self._split_text_by_length(text)
-        
+        text_chunks = self._split_text_by_length(text, language_code)
+
         if len(text_chunks) == 1:
             # Single chunk - generate directly
-            await self._generate_single_audio_chunk(text_chunks[0], speaker, output_file)
+            await self._generate_single_audio_chunk(text_chunks[0], speaker, output_file, language_code)
         else:
             # Multiple chunks - generate separately and merge
             logger.info(f"Splitting long text into {len(text_chunks)} chunks")
             chunk_files = []
-            
+
             for i, chunk_text in enumerate(text_chunks):
                 chunk_file = output_file.replace('.mp3', f'_part_{i+1}.mp3')
-                await self._generate_single_audio_chunk(chunk_text, speaker, chunk_file) 
+                await self._generate_single_audio_chunk(chunk_text, speaker, chunk_file, language_code)
                 chunk_files.append(chunk_file)
-            
+
             # Merge chunk files into final output
             await self._merge_audio_files(chunk_files, output_file)
-            
+
             # Clean up temporary chunk files
             for chunk_file in chunk_files:
                 if os.path.exists(chunk_file):
                     os.remove(chunk_file)
     
-    async def _generate_single_audio_chunk(self, text: str, speaker: str, output_file: str):
+    async def _generate_single_audio_chunk(self, text: str, speaker: str, output_file: str, language_code: str = "ja"):
         """Generate TTS audio for a single text chunk"""
-        
+
+        # Determine language settings
+        tts_language_code = "ja-JP" if language_code == "ja" else "en-US"
+        speaker_voices = self.japanese_speaker_voices if language_code == "ja" else self.english_speaker_voices
+
         # Get voice configuration for speaker
         if self.force_single_mode:
             # Use single voice for all speakers when forced
-            if self.single_voice_gender in self.single_speaker_voices:
-                voice_config = self.single_speaker_voices[self.single_voice_gender]
+            lang_voices = self.single_speaker_voices.get(language_code, self.single_speaker_voices["ja"])
+            if self.single_voice_gender in lang_voices:
+                voice_config = lang_voices[self.single_voice_gender]
             else:
                 logger.warning(f"Invalid SINGLE_SPEAKER_VOICE_GENDER: {self.single_voice_gender}, defaulting to male")
-                voice_config = self.single_speaker_voices["male"]
+                voice_config = lang_voices["male"]
         else:
             # Use different voices for different speakers (normal mode)
-            voice_config = self.speaker_voices.get(speaker, self.speaker_voices["Speaker A"])
-        
+            voice_config = speaker_voices.get(speaker, speaker_voices["Speaker A"])
+
         # Prepare TTS request
         synthesis_input = texttospeech.SynthesisInput(text=text)
-        
+
         voice = texttospeech.VoiceSelectionParams(
-            language_code="ja-JP",
+            language_code=tts_language_code,
             name=voice_config["name"],
             ssml_gender=voice_config["gender"]
         )
