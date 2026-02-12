@@ -1,6 +1,6 @@
 from enum import Enum
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 
 class JobStatus(Enum):
@@ -55,6 +55,10 @@ class TranslationJob(BaseModel):
     # Step 3: Target audio generation paths
     audio_output_dir: Optional[str] = None
     final_target_audio_path: Optional[str] = None
+
+    # Audio versions tracking for regeneration feature
+    # Each version contains: {"version": 1, "path": "...", "voice_mappings": {...}, "speaking_rate": 1.2, "created_at": "..."}
+    audio_versions: List[Dict[str, Any]] = []
 
     # Resume tracking
     current_step: int = 1

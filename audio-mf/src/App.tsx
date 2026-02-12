@@ -39,6 +39,8 @@ function App() {
     // Load from localStorage on initial render
     return localStorage.getItem(CURRENT_JOB_ID_KEY) || ''
   })
+  const [regenerateJobId, setRegenerateJobId] = useState<string | null>(null)
+  const [jobStatusRefreshKey, setJobStatusRefreshKey] = useState(0)
 
   // Persist currentJobId to localStorage whenever it changes
   useEffect(() => {
@@ -62,6 +64,24 @@ function App() {
     setTabValue(1) // Switch to Job Status tab
   }
 
+  const handleRegenerateAudio = (jobId: string) => {
+    setRegenerateJobId(jobId)
+    setTabValue(0) // Switch to Upload Audio tab (which shows regeneration UI)
+  }
+
+  const handleCancelRegenerate = () => {
+    setRegenerateJobId(null)
+  }
+
+  const handleRegenerationStarted = () => {
+    // Switch to Job Status tab to see progress
+    setCurrentJobId(regenerateJobId || '')
+    setRegenerateJobId(null)
+    // Increment refresh key to force JobStatus component to remount and start polling
+    setJobStatusRefreshKey(prev => prev + 1)
+    setTabValue(1)
+  }
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -80,10 +100,19 @@ function App() {
           </Box>
           
           <TabPanel value={tabValue} index={0}>
-            <AudioUpload onJobCreated={handleJobCreated} />
+            <AudioUpload
+              onJobCreated={handleJobCreated}
+              regenerateJobId={regenerateJobId}
+              onCancelRegenerate={handleCancelRegenerate}
+              onRegenerationStarted={handleRegenerationStarted}
+            />
           </TabPanel>
           <TabPanel value={tabValue} index={1}>
-            <JobStatus key={currentJobId} jobId={currentJobId} />
+            <JobStatus
+              key={`${currentJobId}-${jobStatusRefreshKey}`}
+              jobId={currentJobId}
+              onRegenerateAudio={handleRegenerateAudio}
+            />
           </TabPanel>
           <TabPanel value={tabValue} index={2}>
             <JobHistory onViewJob={handleViewJob} />

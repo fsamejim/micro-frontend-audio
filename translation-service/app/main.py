@@ -19,8 +19,25 @@ from .services.text_cleaning_service import TextCleaningService
 from .services.tts_service import TTSService
 from .models.translation_job import TranslationJob, JobStatus
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
+# Setup logging with timestamps (including uvicorn)
+LOG_FORMAT = '%(asctime)s - %(levelname)s - %(name)s - %(message)s'
+LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
+
+logging.basicConfig(
+    level=logging.INFO,
+    format=LOG_FORMAT,
+    datefmt=LOG_DATE_FORMAT
+)
+
+# Apply same format to uvicorn loggers and prevent propagation to avoid duplicates
+for logger_name in ['uvicorn', 'uvicorn.error', 'uvicorn.access']:
+    uvicorn_logger = logging.getLogger(logger_name)
+    uvicorn_logger.handlers = []
+    uvicorn_logger.propagate = False
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter(LOG_FORMAT, LOG_DATE_FORMAT))
+    uvicorn_logger.addHandler(handler)
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Audio Translation Service", version="1.0.0")
@@ -135,6 +152,12 @@ class JobStatusResponse(BaseModel):
     message: str
     error: Optional[str] = None
     files: List[dict] = []
+    audio_versions: List[dict] = []
+
+class RegenerateAudioRequest(BaseModel):
+    voice_mappings: dict  # {"Speaker A": "ja-JP-Wavenet-B", ...}
+    speaking_rate: float = 1.2
+    transcript_source: str = "target"  # "target" or "source"
 
 @app.get("/health")
 async def health_check():
@@ -231,14 +254,39 @@ async def get_job_status(job_id: str) -> JobStatusResponse:
         files.append({"type": "target_transcript", "available": True})
     if job.final_target_audio_path and os.path.exists(job.final_target_audio_path):
         files.append({"type": "target_audio", "available": True})
-    
+
+    # Build audio versions list for response
+    audio_versions_response = []
+    # Add original audio as v1 if it exists
+    if job.final_target_audio_path and os.path.exists(job.final_target_audio_path):
+        audio_versions_response.append({
+            "version": 1,
+            "type": "target_audio_v1",
+            "available": True,
+            "voice_mappings": {},  # Original uses default voices
+            "speaking_rate": 1.2  # Default rate
+        })
+    # Add additional versions from audio_versions field
+    for version_info in job.audio_versions:
+        version_num = version_info.get("version", len(audio_versions_response) + 1)
+        # Use effective_voice_mappings if available (shows actual voices used), otherwise fall back to voice_mappings
+        voice_mappings = version_info.get("effective_voice_mappings") or version_info.get("voice_mappings", {})
+        audio_versions_response.append({
+            "version": version_num,
+            "type": f"target_audio_v{version_num}",
+            "available": os.path.exists(version_info.get("path", "")) if version_info.get("path") else False,
+            "voice_mappings": voice_mappings,
+            "speaking_rate": version_info.get("speaking_rate", 1.2)
+        })
+
     return JobStatusResponse(
         job_id=job_id,
         status=get_status_value(job.status),
         progress=job.progress,
         message=job.message,
         error=job.error_message,
-        files=files
+        files=files,
+        audio_versions=audio_versions_response
     )
 
 @app.get("/translation/download/{job_id}/{file_type}")
@@ -267,9 +315,27 @@ async def download_file(job_id: str, file_type: str):
     elif file_type in ["japanese_transcript", "target_transcript"]:
         file_path = job.clean_target_path
         media_type = "text/plain"
-    elif file_type in ["japanese_audio", "target_audio"]:
+    elif file_type in ["japanese_audio", "target_audio", "target_audio_v1"]:
+        # v1 is always the original audio
         file_path = job.final_target_audio_path
         media_type = "audio/mpeg"
+    elif file_type.startswith("target_audio_v"):
+        # Handle versioned audio files (v2, v3, etc.)
+        media_type = "audio/mpeg"
+        try:
+            version_str = file_type.replace("target_audio_v", "")
+            version_num = int(version_str)
+            if version_num == 1:
+                # v1 is the original
+                file_path = job.final_target_audio_path
+            else:
+                # Look for the version in audio_versions
+                for version_info in job.audio_versions:
+                    if version_info.get("version") == version_num:
+                        file_path = version_info.get("path")
+                        break
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid version number")
     else:
         raise HTTPException(status_code=400, detail="Invalid file type")
 
@@ -283,20 +349,455 @@ async def download_file(job_id: str, file_type: str):
 async def get_user_jobs(user_id: int):
     """Get all translation jobs for a user"""
 
-    user_jobs = [
-        {
+    user_jobs = []
+    for job in jobs_storage.values():
+        if job.user_id != user_id:
+            continue
+
+        # Build audio versions info for this job
+        audio_versions = []
+        if job.final_target_audio_path and os.path.exists(job.final_target_audio_path):
+            audio_versions.append({
+                "version": 1,
+                "speaking_rate": 1.2,
+                "voice_mappings": {}
+            })
+        for version_info in job.audio_versions:
+            voice_mappings = version_info.get("effective_voice_mappings") or version_info.get("voice_mappings", {})
+            audio_versions.append({
+                "version": version_info.get("version", len(audio_versions) + 1),
+                "speaking_rate": version_info.get("speaking_rate", 1.2),
+                "voice_mappings": voice_mappings
+            })
+
+        user_jobs.append({
             "job_id": job.job_id,
             "original_filename": job.original_filename,
             "status": get_status_value(job.status),
             "progress": job.progress,
             "created_at": job.created_at.isoformat(),
-            "completed_at": job.completed_at.isoformat() if job.completed_at else None
-        }
-        for job in jobs_storage.values()
-        if job.user_id == user_id
-    ]
+            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+            "audio_versions": audio_versions
+        })
 
     return {"jobs": user_jobs}
+
+@app.get("/translation/voices")
+async def get_available_voices(language_code: str = "ja"):
+    """
+    Get available Google TTS voices for a language.
+
+    Args:
+        language_code: Language code ("ja" for Japanese, "en" for English)
+
+    Returns:
+        List of available voices with name, gender, and language info
+    """
+    try:
+        tts_service = TTSService()
+        voices = tts_service.list_available_voices(language_code)
+        return {
+            "language_code": language_code,
+            "voices": voices,
+            "documentation_url": "https://cloud.google.com/text-to-speech/docs/voices"
+        }
+    except Exception as e:
+        logger.error(f"Failed to get voices: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get voices: {str(e)}")
+
+
+@app.get("/translation/voice-sample")
+async def get_voice_sample(voice_name: str, language_code: str = "ja"):
+    """
+    Generate a sample audio clip for a specific voice.
+
+    Args:
+        voice_name: The Google TTS voice name (e.g., "ja-JP-Wavenet-A")
+        language_code: Language code ("ja" or "en") - used for sample text selection
+
+    Returns:
+        Audio file (MP3) with sample speech
+    """
+    try:
+        from google.cloud import texttospeech
+
+        # Extract language code from voice name (e.g., "ja-JP-Neural2-B" -> "ja-JP")
+        # This ensures we use the correct language for the voice
+        voice_language_code = "ja-JP" if language_code == "ja" else "en-US"  # default fallback
+        if voice_name:
+            parts = voice_name.split('-')
+            if len(parts) >= 2:
+                potential_lang = f"{parts[0]}-{parts[1]}"
+                if potential_lang in ['ja-JP', 'en-US', 'en-GB', 'en-AU', 'en-IN']:
+                    voice_language_code = potential_lang
+
+        # Sample text based on the voice's language (not the user-selected language_code)
+        if voice_language_code.startswith('ja'):
+            sample_text = "こんにちは。これはサンプル音声です。"
+        else:
+            sample_text = "Hello. This is a sample voice."
+
+        logger.info(f"Generating voice sample: voice={voice_name}, voice_lang={voice_language_code}")
+
+        # Initialize TTS client
+        service_account_path = os.getenv("GOOGLE_SERVICE_ACCOUNT_PATH")
+        if service_account_path and os.path.exists(service_account_path):
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_path
+
+        client = texttospeech.TextToSpeechClient()
+
+        # Determine voice type - some voices require actual gender, others support NEUTRAL
+        # Wavenet and Standard voices support NEUTRAL, but Neural2, Studio, and others don't
+        supports_neutral = any(vtype in voice_name for vtype in ['Wavenet', 'Standard'])
+
+        if supports_neutral:
+            # Wavenet/Standard support NEUTRAL gender
+            gender = texttospeech.SsmlVoiceGender.NEUTRAL
+            logger.info(f"Using NEUTRAL gender for {voice_name}")
+        else:
+            # Get actual gender from voice list API for Neural2, Studio, Chirp, etc.
+            gender = texttospeech.SsmlVoiceGender.NEUTRAL  # default fallback
+            response = client.list_voices()
+            for voice in response.voices:
+                if voice.name == voice_name:
+                    gender = voice.ssml_gender
+                    logger.info(f"Voice {voice_name} has actual gender: {gender}")
+                    break
+
+        # Build request
+        synthesis_input = texttospeech.SynthesisInput(text=sample_text)
+        voice = texttospeech.VoiceSelectionParams(
+            language_code=voice_language_code,  # Use language from voice name
+            name=voice_name,
+            ssml_gender=gender
+        )
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3,
+            speaking_rate=1.0
+        )
+
+        # Generate audio
+        response = client.synthesize_speech(
+            input=synthesis_input,
+            voice=voice,
+            audio_config=audio_config,
+            timeout=10
+        )
+
+        # Return audio as streaming response
+        from fastapi.responses import Response
+        return Response(
+            content=response.audio_content,
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": f"inline; filename=sample_{voice_name}.mp3"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to generate voice sample for {voice_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate sample: {str(e)}")
+
+
+@app.get("/translation/speakers/{job_id}")
+async def get_job_speakers(job_id: str):
+    """
+    Get the list of speakers detected in a translation job.
+    This is useful for setting up voice mappings for audio regeneration.
+    """
+    # Try in-memory first, then fall back to disk
+    if job_id not in jobs_storage:
+        job = load_job_from_disk(job_id)
+        if job:
+            jobs_storage[job_id] = job
+            logger.info(f"Loaded job {job_id} from disk for speakers")
+        else:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+    job = jobs_storage[job_id]
+
+    # Read the clean transcript to extract speakers
+    if not job.clean_target_path or not os.path.exists(job.clean_target_path):
+        raise HTTPException(status_code=400, detail="No transcript available for this job")
+
+    try:
+        import re
+        with open(job.clean_target_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Extract unique speakers from transcript
+        speaker_pattern = r'^(Speaker [A-E]):'
+        speakers = set()
+        for line in content.split('\n'):
+            match = re.match(speaker_pattern, line)
+            if match:
+                speakers.add(match.group(1))
+
+        speakers_list = sorted(list(speakers))
+        logger.info(f"Found {len(speakers_list)} speakers in job {job_id}: {speakers_list}")
+
+        return {
+            "job_id": job_id,
+            "speakers": speakers_list,
+            "target_language": job.target_language,
+            "source_language": job.source_language
+        }
+    except Exception as e:
+        logger.error(f"Failed to extract speakers: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to extract speakers: {str(e)}")
+
+
+@app.post("/translation/regenerate-audio/{job_id}")
+async def regenerate_audio(job_id: str, request: RegenerateAudioRequest, background_tasks: BackgroundTasks):
+    """
+    Regenerate audio for a completed job with custom voice mappings and speaking rate.
+
+    Creates a new versioned audio file (v2, v3, etc.) without modifying the original.
+    """
+    # Try in-memory first, then fall back to disk
+    if job_id not in jobs_storage:
+        job = load_job_from_disk(job_id)
+        if job:
+            jobs_storage[job_id] = job
+            logger.info(f"Loaded job {job_id} from disk for regeneration")
+        else:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+    job = jobs_storage[job_id]
+
+    # Only allow regeneration for completed jobs
+    current_status = get_status_value(job.status)
+    if current_status != "COMPLETED":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Can only regenerate audio for completed jobs. Current status: {current_status}"
+        )
+
+    # Validate transcript_source
+    transcript_source = request.transcript_source
+    if transcript_source not in ["target", "source"]:
+        raise HTTPException(status_code=400, detail="transcript_source must be 'target' or 'source'")
+
+    # Determine which transcript file to use based on transcript_source
+    if transcript_source == "source":
+        transcript_path = job.formatted_transcript_path
+        audio_language = job.source_language
+        transcript_type = "source"
+    else:
+        transcript_path = job.clean_target_path
+        audio_language = job.target_language
+        transcript_type = "target"
+
+    logger.info(f"Using {transcript_type} transcript: {transcript_path}, language: {audio_language}")
+
+    # Verify transcript exists and has content
+    if not transcript_path:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No {transcript_type} transcript path stored for this job. This job may be from an older version. Please run a new translation."
+        )
+
+    if not os.path.exists(transcript_path):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{transcript_type.capitalize()} transcript file not found at {transcript_path}. The file may have been deleted. Please run a new translation."
+        )
+
+    # Check transcript file has content
+    try:
+        file_size = os.path.getsize(transcript_path)
+        if file_size == 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{transcript_type.capitalize()} transcript file is empty. Please run a new translation."
+            )
+
+        # Read and validate content has speaker lines
+        with open(transcript_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            if not content.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{transcript_type.capitalize()} transcript file has no content. Please run a new translation."
+                )
+            # Check for at least one speaker line
+            import re
+            if not re.search(r'^Speaker [A-E]:', content, re.MULTILINE):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{transcript_type.capitalize()} transcript file has no valid speaker lines. Please run a new translation."
+                )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to read {transcript_type} transcript file: {str(e)}"
+        )
+
+    # Verify language is set
+    if not audio_language:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{transcript_type.capitalize()} language not set for this job. This job may be from an older version. Please run a new translation."
+        )
+
+    # Validate speaking rate
+    if request.speaking_rate < 0.5 or request.speaking_rate > 2.0:
+        raise HTTPException(status_code=400, detail="Speaking rate must be between 0.5 and 2.0")
+
+    # Log voice mappings (skip strict validation - Google TTS will handle invalid voices)
+    if request.voice_mappings:
+        logger.info(f"Voice mappings for job {job_id}: {request.voice_mappings}")
+
+    # Determine next version number
+    next_version = 2  # v1 is always the original
+    for version_info in job.audio_versions:
+        if version_info.get("version", 0) >= next_version:
+            next_version = version_info.get("version") + 1
+
+    logger.info(f"Regenerating audio for job {job_id} as version {next_version}")
+
+    # Start regeneration in background
+    background_tasks.add_task(
+        process_audio_regeneration,
+        job_id,
+        request.voice_mappings,
+        request.speaking_rate,
+        next_version,
+        transcript_path,
+        audio_language,
+        transcript_type
+    )
+
+    lang_name = "Japanese" if audio_language == "ja" else "English"
+    return {
+        "job_id": job_id,
+        "status": "regenerating",
+        "version": next_version,
+        "message": f"Audio regeneration started using {transcript_type} transcript ({lang_name}). This will create version {next_version}."
+    }
+
+
+async def process_audio_regeneration(
+    job_id: str,
+    voice_mappings: dict,
+    speaking_rate: float,
+    version: int,
+    transcript_path: str,
+    audio_language: str,
+    transcript_type: str
+):
+    """Background task to regenerate audio with custom voice mappings"""
+
+    job = jobs_storage[job_id]
+
+    try:
+        lang_name = "Japanese" if audio_language == "ja" else "English"
+        logger.info(f"Starting audio regeneration for job {job_id} (v{version}) using {transcript_type} transcript ({lang_name})")
+
+        # Update job message
+        job.message = f"Regenerating audio (v{version}) from {transcript_type} transcript ({lang_name})..."
+        save_job_to_disk(job)
+
+        # Double-check transcript file still exists (could have been deleted between API call and background task)
+        if not transcript_path or not os.path.exists(transcript_path):
+            raise Exception(f"Transcript file not found: {transcript_path}")
+
+        # Check file has content
+        with open(transcript_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            if not content.strip():
+                raise Exception("Transcript file is empty")
+            line_count = len([l for l in content.split('\n') if l.strip()])
+            logger.info(f"Transcript has {line_count} non-empty lines")
+
+        # Initialize TTS service
+        try:
+            tts_service = TTSService()
+        except Exception as e:
+            raise Exception(f"Failed to initialize TTS service (check Google Cloud credentials): {str(e)}")
+
+        # Create output paths - include transcript type in filename for clarity
+        audio_output_dir = f"/app/outputs/{job_id}/audio_segments_v{version}"
+        final_audio_path = f"/app/outputs/{job_id}/full_audio_{audio_language}_v{version}.mp3"
+
+        logger.info(f"Output directory: {audio_output_dir}")
+        logger.info(f"Final audio path: {final_audio_path}")
+        logger.info(f"Transcript path: {transcript_path}")
+        logger.info(f"Audio language: {audio_language}")
+        logger.info(f"Voice mappings: {voice_mappings}")
+        logger.info(f"Speaking rate: {speaking_rate}")
+
+        # Generate audio with custom voices
+        result = await tts_service.generate_audio_with_custom_voices(
+            input_file=transcript_path,
+            voice_mappings=voice_mappings,
+            speaking_rate=speaking_rate,
+            output_dir=audio_output_dir,
+            output_file=final_audio_path,
+            language_code=audio_language
+        )
+
+        # Handle result (can be string for backward compat or dict with metadata)
+        if isinstance(result, dict):
+            actual_output_path = result.get("output_file", final_audio_path)
+            failed_segments = result.get("failed_segments", [])
+            total_segments = result.get("total_segments", 0)
+            successful_segments = result.get("successful_segments", 0)
+            effective_voices = result.get("effective_voice_mapping", {})
+        else:
+            actual_output_path = result
+            failed_segments = []
+            total_segments = 0
+            successful_segments = 0
+            effective_voices = {}
+
+        # Verify output file was created and has content
+        if not os.path.exists(actual_output_path):
+            raise Exception(f"Audio file was not created at {actual_output_path}")
+
+        output_size = os.path.getsize(actual_output_path)
+        if output_size < 1000:  # Less than 1KB is suspicious
+            raise Exception(f"Generated audio file is too small ({output_size} bytes). TTS may have failed.")
+
+        logger.info(f"Generated audio file size: {output_size} bytes")
+
+        # Add version info to job
+        version_info = {
+            "version": version,
+            "path": actual_output_path,
+            "voice_mappings": voice_mappings,
+            "effective_voice_mappings": effective_voices,
+            "speaking_rate": speaking_rate,
+            "transcript_source": transcript_type,
+            "audio_language": audio_language,
+            "created_at": datetime.now().isoformat(),
+            "total_segments": total_segments,
+            "successful_segments": successful_segments,
+            "failed_segments_count": len(failed_segments)
+        }
+        job.audio_versions.append(version_info)
+
+        # Build completion message
+        lang_name = "Japanese" if audio_language == "ja" else "English"
+        if failed_segments:
+            failed_speakers = list(set(fs['speaker'] for fs in failed_segments))
+            job.message = f"Audio v{version} ({lang_name} from {transcript_type}) generated with warnings: {len(failed_segments)} segments failed. These were replaced with silence."
+        else:
+            job.message = f"Audio regeneration completed! Version {version} ({lang_name} from {transcript_type} transcript) is now available."
+
+        save_job_to_disk(job)
+
+        logger.info(f"Audio regeneration for job {job_id} v{version} completed successfully")
+
+    except Exception as e:
+        logger.error(f"Audio regeneration for job {job_id} v{version} failed: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        job.message = f"Audio regeneration (v{version}) failed: {str(e)}"
+        save_job_to_disk(job)
+
 
 # Test endpoint for retry logic - only available when TEST_MODE=true
 @app.post("/translation/test/fail/{job_id}")
