@@ -250,6 +250,25 @@ export const JobHistory: React.FC<JobHistoryProps> = ({ onViewJob }) => {
                                                     </Typography>
                                                 )}
                                             </Box>
+                                            {/* Audio Versions Info */}
+                                            {job.audio_versions && job.audio_versions.length > 0 && (
+                                                <Box sx={{ mt: 1, pl: 1, borderLeft: '2px solid #e0e0e0' }}>
+                                                    <Typography variant="caption" color="textSecondary" fontWeight="bold">
+                                                        Audio Versions:
+                                                    </Typography>
+                                                    {job.audio_versions.map((version) => {
+                                                        const voiceEntries = Object.entries(version.voice_mappings || {});
+                                                        const voiceInfo = voiceEntries.length > 0
+                                                            ? voiceEntries.map(([speaker, voice]) => `${speaker}: ${voice}`).join(', ')
+                                                            : 'Default voices';
+                                                        return (
+                                                            <Typography key={version.version} variant="caption" display="block" color="textSecondary" sx={{ ml: 1 }}>
+                                                                v{version.version}: {version.speaking_rate}x speed | {voiceInfo}
+                                                            </Typography>
+                                                        );
+                                                    })}
+                                                </Box>
+                                            )}
                                         </Box>
                                     }
                                 />

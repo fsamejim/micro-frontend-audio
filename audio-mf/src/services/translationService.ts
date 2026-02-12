@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { UploadResponse, JobStatusResponse, UserJobsResponse } from '../types/translation';
+import type { UploadResponse, JobStatusResponse, UserJobsResponse, VoicesResponse, SpeakersResponse, RegenerateAudioResponse } from '../types/translation';
 
 const TRANSLATION_API_URL = 'http://localhost:8001';
 
@@ -45,8 +45,41 @@ export const translationService = {
         return response.data;
     },
 
+    // Get available TTS voices for a language
+    getAvailableVoices: async (languageCode: string = 'ja'): Promise<VoicesResponse> => {
+        const response = await axios.get(`${TRANSLATION_API_URL}/translation/voices?language_code=${languageCode}`);
+        return response.data;
+    },
+
+    // Get URL for voice sample audio
+    getVoiceSampleUrl: (voiceName: string, languageCode: string = 'ja'): string => {
+        return `${TRANSLATION_API_URL}/translation/voice-sample?voice_name=${encodeURIComponent(voiceName)}&language_code=${languageCode}`;
+    },
+
+    // Get speakers detected in a job's transcript
+    getJobSpeakers: async (jobId: string): Promise<SpeakersResponse> => {
+        const response = await axios.get(`${TRANSLATION_API_URL}/translation/speakers/${jobId}`);
+        return response.data;
+    },
+
+    // Regenerate audio with custom voice mappings
+    regenerateAudio: async (
+        jobId: string,
+        voiceMappings: Record<string, string>,
+        speakingRate: number,
+        transcriptSource: 'target' | 'source' = 'target'
+    ): Promise<RegenerateAudioResponse> => {
+        const response = await axios.post(`${TRANSLATION_API_URL}/translation/regenerate-audio/${jobId}`, {
+            voice_mappings: voiceMappings,
+            speaking_rate: speakingRate,
+            transcript_source: transcriptSource
+        });
+        return response.data;
+    },
+
     // Download a specific file from a completed job
-    downloadFile: async (jobId: string, fileType: 'source_transcript' | 'target_transcript' | 'target_audio'): Promise<Blob> => {
+    // fileType can be: source_transcript, target_transcript, target_audio, target_audio_v1, target_audio_v2, etc.
+    downloadFile: async (jobId: string, fileType: string): Promise<Blob> => {
         const response = await axios.get(`${TRANSLATION_API_URL}/translation/download/${jobId}/${fileType}`, {
             responseType: 'blob',
         });
@@ -54,7 +87,8 @@ export const translationService = {
     },
 
     // Helper function to download and save file
-    downloadAndSaveFile: async (jobId: string, fileType: 'source_transcript' | 'target_transcript' | 'target_audio', filename?: string): Promise<void> => {
+    // fileType can be: source_transcript, target_transcript, target_audio, target_audio_v1, target_audio_v2, etc.
+    downloadAndSaveFile: async (jobId: string, fileType: string, filename?: string): Promise<void> => {
         try {
             const blob = await translationService.downloadFile(jobId, fileType);
 

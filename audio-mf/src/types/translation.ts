@@ -8,11 +8,40 @@ export interface TranslationJob {
     created_at?: string;
     completed_at?: string;
     files: TranslationFile[];
+    audio_versions?: AudioVersion[];
 }
 
 export interface TranslationFile {
-    type: 'source_transcript' | 'target_transcript' | 'target_audio';
+    type: 'source_transcript' | 'target_transcript' | 'target_audio' | string;
     available: boolean;
+}
+
+export interface AudioVersion {
+    version: number;
+    type: string;  // e.g., "target_audio_v1", "target_audio_v2"
+    available: boolean;
+    voice_mappings: Record<string, string>;
+    speaking_rate: number;
+}
+
+export interface Voice {
+    name: string;
+    gender: 'MALE' | 'FEMALE' | 'NEUTRAL';
+    language_codes: string[];
+    natural_sample_rate_hertz: number;
+}
+
+export interface VoicesResponse {
+    language_code: string;
+    voices: Voice[];
+    documentation_url: string;
+}
+
+export interface SpeakersResponse {
+    job_id: string;
+    speakers: string[];
+    target_language: string;
+    source_language: string;
 }
 
 export interface UploadResponse {
@@ -28,10 +57,18 @@ export interface JobStatusResponse {
     message: string;
     error?: string;
     files: TranslationFile[];
+    audio_versions: AudioVersion[];
 }
 
 export interface UserJobsResponse {
     jobs: TranslationJob[];
+}
+
+export interface RegenerateAudioResponse {
+    job_id: string;
+    status: string;
+    version: number;
+    message: string;
 }
 
 export type JobStatus =

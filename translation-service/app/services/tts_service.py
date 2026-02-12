@@ -210,32 +210,50 @@ class TTSService:
         return await self.generate_audio(input_file, output_dir, merged_file, "ja")
     
     async def _parse_dialogue_segments(self, input_file: str) -> List[Dict]:
-        """Parse the cleaned Japanese dialogue into segments"""
-        
+        """Parse the dialogue into segments, handling multi-paragraph content per speaker"""
+
         with open(input_file, 'r', encoding='utf-8') as f:
             content = f.read()
-        
+
         segments = []
         lines = content.split('\n')
-        
+
+        current_speaker = None
+        current_text_parts = []
+
         for line_num, line in enumerate(lines, 1):
             line = line.strip()
-            if not line:
-                continue
-            
-            # Parse speaker lines
+
+            # Check if this is a new speaker line
             speaker_match = re.match(r'^(Speaker [A-E]):\s*(.*)$', line)
             if speaker_match:
-                speaker = speaker_match.group(1)
-                text = speaker_match.group(2).strip()
-                
-                if text:  # Only add non-empty segments
-                    segments.append({
-                        'speaker': speaker,
-                        'text': text,
-                        'line_number': line_num
-                    })
-        
+                # Save previous speaker's content if any
+                if current_speaker and current_text_parts:
+                    full_text = ' '.join(current_text_parts).strip()
+                    if full_text:
+                        segments.append({
+                            "speaker": current_speaker,
+                            "text": full_text
+                        })
+
+                # Start new speaker
+                current_speaker = speaker_match.group(1)
+                first_line_text = speaker_match.group(2).strip()
+                current_text_parts = [first_line_text] if first_line_text else []
+            elif line and current_speaker:
+                # This is a continuation paragraph for the current speaker
+                current_text_parts.append(line)
+
+        # Don't forget the last speaker's content
+        if current_speaker and current_text_parts:
+            full_text = ' '.join(current_text_parts).strip()
+            if full_text:
+                segments.append({
+                    "speaker": current_speaker,
+                    "text": full_text
+                })
+
+        logger.info(f"Parsed {len(segments)} dialogue segments")
         return segments
     
     def _split_text_by_length(self, text: str, language_code: str = "ja", max_length: int = None) -> List[str]:
@@ -434,14 +452,14 @@ class TTSService:
     
     def get_audio_info(self, audio_file: str) -> Dict:
         """Get information about generated audio file"""
-        
+
         try:
             if not os.path.exists(audio_file):
                 return {"exists": False}
-            
+
             audio = AudioSegment.from_mp3(audio_file)
             file_size = os.path.getsize(audio_file)
-            
+
             return {
                 "exists": True,
                 "duration_seconds": len(audio) / 1000,
@@ -450,7 +468,417 @@ class TTSService:
                 "frame_rate": audio.frame_rate,
                 "sample_width": audio.sample_width
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to get audio info: {e}")
             return {"exists": False, "error": str(e)}
+
+    def list_available_voices(self, language_code: str = "ja") -> List[Dict]:
+        """
+        List all available voices for a given language from Google TTS API.
+
+        Args:
+            language_code: Language code ("ja" for Japanese, "en" for English)
+
+        Returns:
+            List of voice dictionaries with name, gender, and language info
+        """
+        try:
+            # Map simple codes to full language codes for filtering
+            language_mapping = {
+                "ja": "ja-JP",
+                "en": "en-US"
+            }
+            full_language_code = language_mapping.get(language_code, f"{language_code}-{language_code.upper()}")
+
+            # Expected voice name prefixes (standard naming pattern)
+            valid_prefixes = {
+                "ja": ["ja-JP-"],
+                "en": ["en-US-", "en-GB-", "en-AU-", "en-IN-"]
+            }
+            allowed_prefixes = valid_prefixes.get(language_code, [full_language_code + "-"])
+
+            # Fetch all voices from Google TTS
+            response = self.client.list_voices()
+
+            voices = []
+            skipped_voices = []
+            for voice in response.voices:
+                # Filter by language code
+                if full_language_code in voice.language_codes:
+                    # Only include voices that follow standard naming pattern
+                    # This filters out special voices like "Callirrhoe" that require model specification
+                    if not any(voice.name.startswith(prefix) for prefix in allowed_prefixes):
+                        skipped_voices.append(voice.name)
+                        continue
+
+                    # Determine gender string
+                    gender = "NEUTRAL"
+                    if voice.ssml_gender == texttospeech.SsmlVoiceGender.MALE:
+                        gender = "MALE"
+                    elif voice.ssml_gender == texttospeech.SsmlVoiceGender.FEMALE:
+                        gender = "FEMALE"
+
+                    voices.append({
+                        "name": voice.name,
+                        "gender": gender,
+                        "language_codes": list(voice.language_codes),
+                        "natural_sample_rate_hertz": voice.natural_sample_rate_hertz
+                    })
+
+            # Sort by voice name for consistent ordering
+            voices.sort(key=lambda v: v["name"])
+
+            logger.info(f"Found {len(voices)} voices for language {language_code} (skipped {len(skipped_voices)} non-standard voices)")
+            if skipped_voices:
+                logger.debug(f"Skipped voices: {skipped_voices[:10]}...")  # Log first 10 skipped
+
+            return voices
+
+        except Exception as e:
+            logger.error(f"Failed to list voices: {e}")
+            raise Exception(f"Failed to list available voices: {str(e)}")
+
+    def validate_voice_names(self, voice_mappings: Dict[str, str], language_code: str = "ja") -> Dict[str, str]:
+        """
+        Validate that all voice names in the mappings are available.
+
+        Args:
+            voice_mappings: Dictionary mapping speaker names to voice names
+            language_code: Target language code
+
+        Returns:
+            Dictionary of invalid voices: {speaker: voice_name}
+        """
+        if not voice_mappings:
+            return {}
+
+        try:
+            available_voices = self.list_available_voices(language_code)
+            available_voice_names = {v["name"] for v in available_voices}
+
+            invalid_voices = {}
+            for speaker, voice_name in voice_mappings.items():
+                if voice_name and voice_name not in available_voice_names:
+                    invalid_voices[speaker] = voice_name
+
+            return invalid_voices
+        except Exception as e:
+            logger.warning(f"Could not validate voices: {e}")
+            return {}
+
+    def _get_voice_gender_from_api(self, voice_name: str) -> texttospeech.SsmlVoiceGender:
+        """
+        Get the actual gender for a voice from the Google TTS API.
+
+        Args:
+            voice_name: The voice name (e.g., "ja-JP-Neural2-B")
+
+        Returns:
+            The SsmlVoiceGender enum value
+        """
+        try:
+            # Fetch all voices from Google TTS
+            response = self.client.list_voices()
+
+            for voice in response.voices:
+                if voice.name == voice_name:
+                    logger.info(f"Found voice {voice_name} with gender {voice.ssml_gender}")
+                    return voice.ssml_gender
+
+            # Voice not found, default to NEUTRAL
+            logger.warning(f"Voice {voice_name} not found in API, defaulting to NEUTRAL")
+            return texttospeech.SsmlVoiceGender.NEUTRAL
+
+        except Exception as e:
+            logger.error(f"Failed to get voice gender from API: {e}")
+            # Default to NEUTRAL on error
+            return texttospeech.SsmlVoiceGender.NEUTRAL
+
+    async def generate_audio_with_custom_voices(
+        self,
+        input_file: str,
+        voice_mappings: Dict[str, str],
+        speaking_rate: float,
+        output_dir: str,
+        output_file: str,
+        language_code: str = "ja"
+    ) -> str:
+        """
+        Generate audio with custom voice mappings for each speaker.
+
+        Args:
+            input_file: Path to cleaned transcript file
+            voice_mappings: Dictionary mapping speaker names to voice names
+                           e.g., {"Speaker A": "ja-JP-Wavenet-B", "Speaker B": "ja-JP-Standard-C"}
+            speaking_rate: Speaking rate (0.5 to 2.0)
+            output_dir: Directory to save individual audio segments
+            output_file: Path to save final merged audio file
+            language_code: Target language code ("ja" or "en")
+
+        Returns:
+            str: Path to final merged audio file
+        """
+        try:
+            lang_name = "Japanese" if language_code == "ja" else "English"
+            logger.info(f"Starting custom {lang_name} audio generation with custom voices")
+            logger.info(f"Voice mappings: {voice_mappings}")
+            logger.info(f"Speaking rate: {speaking_rate}")
+
+            # Log voice validation (non-blocking - Google TTS will handle errors)
+            # Skip strict validation as newer voice types (Chirp3-HD, etc.) may not match old patterns
+            logger.info(f"Voice mappings provided: {voice_mappings}")
+
+            # Create output directory
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Parse dialogue into segments
+            segments = await self._parse_dialogue_segments(input_file)
+            logger.info(f"Parsed {len(segments)} dialogue segments")
+
+            if not segments:
+                raise Exception("No dialogue segments found in transcript")
+
+            # Generate audio for each segment with custom voices
+            audio_files = []
+            failed_segments = []
+            tts_language_code = "ja-JP" if language_code == "ja" else "en-US"
+
+            # Build effective voice mapping (with defaults)
+            speaker_voices = self.japanese_speaker_voices if language_code == "ja" else self.english_speaker_voices
+            effective_voice_mapping = {}
+
+            for i, segment in enumerate(segments, 1):
+                speaker = segment['speaker']
+                text = segment['text']
+
+                # Skip empty segments
+                if not text.strip():
+                    continue
+
+                segment_output_file = os.path.join(output_dir, f"segment_{i:04d}_{speaker.replace(' ', '_')}.mp3")
+
+                # Get custom voice for this speaker, or use default
+                voice_name = voice_mappings.get(speaker) if voice_mappings else None
+
+                # If voice is not set, use default
+                if not voice_name:
+                    voice_config = speaker_voices.get(speaker, speaker_voices["Speaker A"])
+                    voice_name = voice_config["name"]
+
+                # Track effective voice mapping
+                if speaker not in effective_voice_mapping:
+                    effective_voice_mapping[speaker] = voice_name
+
+                logger.info(f"🔊 Segment {i:04d} | {speaker} | Voice: {voice_name} | Text: {text[:50]}...")
+
+                try:
+                    # Detect accent mixing (voice language different from transcript language)
+                    voice_lang = voice_name.split('-')[0] if voice_name and '-' in voice_name else None
+                    transcript_lang = language_code[:2] if language_code else None
+                    is_accent_mixing = voice_lang and transcript_lang and voice_lang != transcript_lang
+
+                    # Use smaller chunks for accent mixing (cross-language voices have stricter limits)
+                    if is_accent_mixing:
+                        logger.info(f"Accent mixing detected: {voice_lang} voice with {transcript_lang} text - using 500 char chunks")
+                        max_chunk_length = 500
+                    else:
+                        max_chunk_length = self.max_text_length
+
+                    # Split long text into chunks if needed
+                    text_chunks = self._split_text_by_length(text, language_code, max_chunk_length)
+                    logger.info(f"Split text into {len(text_chunks)} chunks (max_length={max_chunk_length})")
+                    if len(text_chunks) > 1:
+                        for idx, chunk in enumerate(text_chunks):
+                            logger.info(f"  Chunk {idx+1}: {len(chunk)} chars, starts with: {chunk[:50]}...")
+
+                    if len(text_chunks) == 1:
+                        # Single chunk - generate directly
+                        await self._generate_custom_audio_chunk(
+                            text_chunks[0], voice_name, segment_output_file,
+                            tts_language_code, speaking_rate
+                        )
+                    else:
+                        # Multiple chunks - generate separately and merge
+                        logger.info(f"Splitting long text into {len(text_chunks)} chunks")
+                        chunk_files = []
+
+                        for j, chunk_text in enumerate(text_chunks):
+                            chunk_file = segment_output_file.replace('.mp3', f'_part_{j+1}.mp3')
+                            await self._generate_custom_audio_chunk(
+                                chunk_text, voice_name, chunk_file,
+                                tts_language_code, speaking_rate
+                            )
+                            chunk_files.append(chunk_file)
+
+                        # Merge chunk files
+                        await self._merge_audio_files(chunk_files, segment_output_file)
+
+                        # Clean up temporary chunk files
+                        for chunk_file in chunk_files:
+                            if os.path.exists(chunk_file):
+                                os.remove(chunk_file)
+
+                    # Verify file was created
+                    if os.path.exists(segment_output_file) and os.path.getsize(segment_output_file) > 100:
+                        audio_files.append(segment_output_file)
+                        logger.info(f"✅ Segment {i:04d} generated successfully")
+                    else:
+                        raise Exception("Generated file is empty or missing")
+
+                    # Rate limiting delay
+                    await asyncio.sleep(self.request_interval)
+
+                except Exception as e:
+                    logger.error(f"❌ Failed to generate segment {i:04d} ({speaker}, voice: {voice_name}): {e}")
+                    failed_segments.append({
+                        "segment": i,
+                        "speaker": speaker,
+                        "voice": voice_name,
+                        "error": str(e)
+                    })
+                    # Create silence placeholder for failed segments
+                    silence_file = await self._create_silence_placeholder(segment_output_file, 2.0)
+                    audio_files.append(silence_file)
+
+            # Log summary
+            logger.info(f"=" * 50)
+            logger.info(f"GENERATION SUMMARY")
+            logger.info(f"=" * 50)
+            logger.info(f"Total segments: {len(segments)}")
+            logger.info(f"Successful: {len(segments) - len(failed_segments)}")
+            logger.info(f"Failed: {len(failed_segments)}")
+            logger.info(f"Effective voice mapping: {effective_voice_mapping}")
+
+            if failed_segments:
+                logger.error(f"Failed segments details:")
+                for fs in failed_segments:
+                    logger.error(f"  - Segment {fs['segment']} ({fs['speaker']}): {fs['error']}")
+
+            # Check if ALL segments failed
+            successful_count = len(segments) - len(failed_segments)
+            if successful_count == 0 and len(segments) > 0:
+                # All segments failed - this is a critical error
+                error_details = "; ".join([f"{fs['speaker']}: {fs['error']}" for fs in failed_segments[:3]])
+                raise Exception(f"All {len(segments)} segments failed to generate. Errors: {error_details}")
+
+            # Merge all audio files
+            if audio_files:
+                await self._merge_audio_files(audio_files, output_file)
+                logger.info(f"🎉 Custom {lang_name} audio generation completed: {output_file}")
+
+                # Raise warning if there were failures
+                if failed_segments:
+                    failed_speakers = list(set(fs['speaker'] for fs in failed_segments))
+                    logger.warning(f"⚠️ Audio generated with {len(failed_segments)} failed segments (speakers: {failed_speakers})")
+
+                # Return result with metadata
+                return {
+                    "output_file": output_file,
+                    "total_segments": len(segments),
+                    "successful_segments": successful_count,
+                    "failed_segments": failed_segments,
+                    "effective_voice_mapping": effective_voice_mapping
+                }
+            else:
+                raise Exception("No audio files were generated")
+
+        except Exception as e:
+            logger.error(f"Custom audio generation failed: {e}")
+            raise Exception(f"Custom audio generation failed: {str(e)}")
+
+    async def _generate_custom_audio_chunk(
+        self,
+        text: str,
+        voice_name: str,
+        output_file: str,
+        language_code: str,
+        speaking_rate: float
+    ):
+        """Generate TTS audio for a single text chunk with custom voice and rate"""
+
+        # Extract language code from voice name (e.g., "ja-JP-Neural2-B" -> "ja-JP")
+        # This ensures the language code matches the voice
+        voice_language_code = language_code  # default fallback
+        if voice_name:
+            parts = voice_name.split('-')
+            if len(parts) >= 2:
+                # Handle patterns like "ja-JP-...", "en-US-...", "en-GB-..."
+                potential_lang = f"{parts[0]}-{parts[1]}"
+                if potential_lang in ['ja-JP', 'en-US', 'en-GB', 'en-AU', 'en-IN']:
+                    voice_language_code = potential_lang
+
+        logger.info(f"Generating audio chunk: voice={voice_name}, voice_lang={voice_language_code}, target_lang={language_code}, rate={speaking_rate}")
+        logger.info(f"Text preview: {text[:100]}...")
+
+        # Determine voice type for retry logic and gender selection
+        # Only Wavenet and Standard voices support NEUTRAL gender
+        supports_neutral = any(vtype in voice_name for vtype in ['Wavenet', 'Standard'])
+        is_legacy_voice = supports_neutral  # For retry logic compatibility
+
+        # Determine gender - Neural2, Studio, Chirp, etc. require actual gender
+        if supports_neutral:
+            # Wavenet/Standard support NEUTRAL gender
+            gender = texttospeech.SsmlVoiceGender.NEUTRAL
+            logger.info(f"Using NEUTRAL gender for {voice_name}")
+        else:
+            # Get actual gender from voice list API for Neural2, Studio, Chirp, etc.
+            gender = self._get_voice_gender_from_api(voice_name)
+            logger.info(f"Using actual gender from API for {voice_name}: {gender}")
+
+        # Prepare TTS request
+        synthesis_input = texttospeech.SynthesisInput(text=text)
+
+        voice = texttospeech.VoiceSelectionParams(
+            language_code=voice_language_code,  # Use language from voice name
+            name=voice_name,
+            ssml_gender=gender
+        )
+
+        # Make TTS request with retry logic
+        max_retries = 3
+        current_rate = speaking_rate
+
+        for attempt in range(max_retries):
+            try:
+                # Update audio config with current rate (might change on retry)
+                audio_config = texttospeech.AudioConfig(
+                    audio_encoding=texttospeech.AudioEncoding.MP3,
+                    speaking_rate=current_rate,
+                    pitch=0.0,
+                    volume_gain_db=0.0
+                )
+
+                logger.info(f"TTS request attempt {attempt + 1}/{max_retries} for voice {voice_name} (rate={current_rate})")
+                response = self.client.synthesize_speech(
+                    input=synthesis_input,
+                    voice=voice,
+                    audio_config=audio_config,
+                    timeout=30  # Increased timeout for newer voices
+                )
+
+                # Verify we got audio content
+                if not response.audio_content or len(response.audio_content) < 100:
+                    raise Exception(f"Empty or too small audio response ({len(response.audio_content) if response.audio_content else 0} bytes)")
+
+                # Save audio to file
+                with open(output_file, "wb") as out:
+                    out.write(response.audio_content)
+
+                file_size = os.path.getsize(output_file)
+                logger.info(f"✅ Generated: {os.path.basename(output_file)} ({file_size} bytes)")
+                return
+
+            except Exception as e:
+                logger.error(f"TTS attempt {attempt + 1}/{max_retries} failed for voice {voice_name}: {e}")
+
+                # On second attempt, try with default speaking rate (some voices don't support custom rates)
+                if attempt == 0 and current_rate != 1.0 and not is_legacy_voice:
+                    logger.warning(f"Retrying with default speaking rate (1.0) for newer voice {voice_name}")
+                    current_rate = 1.0
+
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(self.retry_base_delay ** attempt)
+                else:
+                    logger.error(f"All TTS attempts failed for voice {voice_name}")
+                    raise

@@ -239,7 +239,7 @@ docker-compose logs -f backend
 docker-compose down
 
 # Stop and remove volumes (WARNING: deletes database data)
-docker-compose down -v
+
 
 # Rebuild specific service
 docker-compose build auth-mf
@@ -253,8 +253,29 @@ docker-compose exec database mysql -u sammy -p audiotranslationdb
 brew install yt-dlp
 yt-dlp -x --audio-format mp3 --audio-quality 0 "https://www.youtube.com/watch?v=7oAlD3lMNXo"
 ### Example to download a YouTube video only (no audio) ###
+# Find out the available format
+yt-dlp -F "https://www.youtube.com/watch?v=BYXbuik3dgA"
+# Download video only: ex: 270   mp4   1920x1080 
 yt-dlp -f 312 "https://www.youtube.com/watch?v=7oAlD3lMNXo"
 yt-dlp -f 270 "https://www.youtube.com/watch?v=BYXbuik3dgA" -o "video.mp4"
+# video only - nuclear option
+yt-dlp \
+-f 270 \
+--hls-use-mpegts \
+--recode-video mp4 \
+-o elon_reencoded.mp4 \
+"https://www.youtube.com/watch?v=5eFbeEMFna4"
+
+# Then ✅ Guaranteed fix: Make a “Mac-safe” MP4 (baseline H.264)
+ffmpeg -i elon_reencoded.mp4 \
+-map 0:v:0 \
+-c:v libx264 \
+-profile:v baseline \
+-level 3.0 \
+-pix_fmt yuv420p \
+-movflags +faststart \
+-an \
+elon_qt_safe.mp4
 
 
   If your job is completed, you can access the files directly via these URLs (replace {job_id} with your actual Job ID):
