@@ -116,10 +116,12 @@ export const translationService = {
         }
     },
 
-    // Validate file type and size
+    // Validate file type and size (supports both audio and text files)
     validateAudioFile: (file: File): { isValid: boolean; error?: string } => {
-        const allowedTypes = ['audio/mp3', 'audio/wav', 'audio/m4a', 'audio/flac', 'audio/mpeg'];
-        const allowedExtensions = ['.mp3', '.wav', '.m4a', '.flac'];
+        const allowedAudioTypes = ['audio/mp3', 'audio/wav', 'audio/m4a', 'audio/flac', 'audio/mpeg'];
+        const allowedAudioExtensions = ['.mp3', '.wav', '.m4a', '.flac'];
+        const allowedTextTypes = ['text/plain'];
+        const allowedTextExtensions = ['.txt'];
         const maxSize = 300 * 1024 * 1024; // 300MB
 
         // Check file size
@@ -127,19 +129,38 @@ export const translationService = {
             return { isValid: false, error: 'File size must be less than 300MB' };
         }
 
-        // Check file type
-        const isTypeValid = allowedTypes.includes(file.type);
-        const isExtensionValid = allowedExtensions.some(ext => 
+        // Check if it's a text file
+        const isTextType = allowedTextTypes.includes(file.type);
+        const isTextExtension = allowedTextExtensions.some(ext =>
             file.name.toLowerCase().endsWith(ext)
         );
 
-        if (!isTypeValid && !isExtensionValid) {
-            return { 
-                isValid: false, 
-                error: 'Only audio files are allowed (mp3, wav, m4a, flac)' 
+        if (isTextType || isTextExtension) {
+            return { isValid: true };
+        }
+
+        // Check if it's an audio file
+        const isAudioType = allowedAudioTypes.includes(file.type);
+        const isAudioExtension = allowedAudioExtensions.some(ext =>
+            file.name.toLowerCase().endsWith(ext)
+        );
+
+        if (!isAudioType && !isAudioExtension) {
+            return {
+                isValid: false,
+                error: 'Only audio files (mp3, wav, m4a, flac) or text files (.txt) are allowed'
             };
         }
 
         return { isValid: true };
-    }
+    },
+
+    // Convert text string to a File object for upload
+    textToFile: (text: string, filename: string = 'input.txt'): File => {
+        const blob = new Blob([text], { type: 'text/plain' });
+        return new File([blob], filename, { type: 'text/plain' });
+    },
+
+    // Maximum characters for text input textarea
+    TEXT_INPUT_MAX_CHARS: 50000
 };

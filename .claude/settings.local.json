@@ -6,7 +6,13 @@
       "Bash(docker-compose build:*)",
       "Bash(docker-compose restart:*)",
       "Bash(docker-compose ps:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(docker ps --format \"table {{.Names}}\\\\t{{.Image}}\\\\t{{.Status}}\")",
+      "Bash(docker exec micro-frontend-audio-service ping -c 2 api.assemblyai.com 2>&1 || docker exec micro-frontend-audio-service nslookup api.assemblyai.com 2>&1 || docker exec micro-frontend-audio-service cat /etc/resolv.conf)",
+      "Bash(docker exec micro-frontend-audio-service python -c \"import socket; print\\(socket.gethostbyname\\('api.assemblyai.com'\\)\\)\")",
+      "Bash(docker exec micro-frontend-audio-service curl -s -o /dev/null -w \"%{http_code}\" --connect-timeout 10 https://api.assemblyai.com)",
+      "Bash(docker-compose up --build -d)",
+      "Bash(docker ps --format \"table {{.Names}}\\\\t{{.Status}}\")"
     ]
   }
 }
