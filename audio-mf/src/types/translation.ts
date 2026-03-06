@@ -48,6 +48,7 @@ export interface UploadResponse {
     job_id: string;
     status: string;
     message: string;
+    input_type?: 'audio' | 'text';
 }
 
 export interface JobStatusResponse {

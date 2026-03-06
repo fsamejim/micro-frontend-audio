@@ -34,6 +34,9 @@ class TranslationJob(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime] = None
 
+    # Input type: "audio" (default) or "text"
+    input_type: str = "audio"
+
     # Language direction configuration
     source_language: str = "en"  # "en" or "ja"
     target_language: str = "ja"  # "ja" or "en"

@@ -172,7 +172,7 @@ async def upload_audio_file(
     source_language: str = "en",
     target_language: str = "ja"
 ):
-    """Upload audio file and start translation job"""
+    """Upload audio or text file and start translation job"""
 
     # Validate language parameters
     valid_languages = ["en", "ja"]
@@ -183,9 +183,14 @@ async def upload_audio_file(
     if source_language == target_language:
         raise HTTPException(status_code=400, detail="source_language and target_language must be different")
 
-    # Validate file type
-    if not file.filename.lower().endswith(('.mp3', '.wav', '.m4a', '.flac')):
-        raise HTTPException(status_code=400, detail="Invalid file type. Supported: mp3, wav, m4a, flac")
+    # Determine input type based on file extension
+    filename_lower = file.filename.lower()
+    if filename_lower.endswith('.txt'):
+        input_type = "text"
+    elif filename_lower.endswith(('.mp3', '.wav', '.m4a', '.flac')):
+        input_type = "audio"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid file type. Supported: mp3, wav, m4a, flac, txt")
 
     # Generate job ID
     job_id = str(uuid.uuid4())
@@ -205,6 +210,19 @@ async def upload_audio_file(
         logger.error(f"Failed to save file: {e}")
         raise HTTPException(status_code=500, detail="Failed to save uploaded file")
 
+    # For text input, validate the file has content
+    if input_type == "text":
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                text_content = f.read()
+            if not text_content.strip():
+                os.remove(file_path)
+                raise HTTPException(status_code=400, detail="Text file is empty")
+            logger.info(f"Text file has {len(text_content)} characters")
+        except UnicodeDecodeError:
+            os.remove(file_path)
+            raise HTTPException(status_code=400, detail="Text file must be UTF-8 encoded")
+
     # Create translation job
     job = TranslationJob(
         job_id=job_id,
@@ -213,6 +231,7 @@ async def upload_audio_file(
         original_file_path=file_path,
         status=JobStatus.UPLOADED,
         created_at=datetime.now(),
+        input_type=input_type,
         source_language=source_language,
         target_language=target_language
     )
@@ -220,7 +239,8 @@ async def upload_audio_file(
     jobs_storage[job_id] = job
     save_job_to_disk(job)  # Persist to JSON file
 
-    logger.info(f"Created job {job_id} with translation direction: {source_language} -> {target_language}")
+    input_label = "Text" if input_type == "text" else "Audio"
+    logger.info(f"Created job {job_id} ({input_type}) with translation direction: {source_language} -> {target_language}")
 
     # Start processing in background
     background_tasks.add_task(process_translation_job, job_id)
@@ -228,7 +248,8 @@ async def upload_audio_file(
     return {
         "job_id": job_id,
         "status": "uploaded",
-        "message": f"File uploaded successfully. Processing started ({source_language.upper()} → {target_language.upper()})."
+        "input_type": input_type,
+        "message": f"{input_label} uploaded successfully. Processing started ({source_language.upper()} → {target_language.upper()})."
     }
 
 @app.get("/translation/status/{job_id}")
@@ -916,6 +937,9 @@ async def retry_job(job_id: str, background_tasks: BackgroundTasks):
 def determine_resume_point(job: TranslationJob):
     """Determine which step to resume from based on failure status or existing files"""
 
+    # Check if this is a text input job
+    is_text_input = getattr(job, 'input_type', 'audio') == 'text'
+
     # If we have a specific failure status, resume from that exact step
     # Use string values for comparison to handle both enum and string status
     failure_to_resume_map = {
@@ -930,7 +954,11 @@ def determine_resume_point(job: TranslationJob):
 
     current_status = get_status_value(job.status)
     if current_status in failure_to_resume_map:
-        return failure_to_resume_map[current_status]
+        resume_status = failure_to_resume_map[current_status]
+        # For text input, skip audio-related steps
+        if is_text_input and resume_status in [JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE]:
+            return JobStatus.FORMATTING_SOURCE_TEXT
+        return resume_status
 
     # For generic FAILED status or other cases, use file-based detection
     # Check files in reverse order of creation
@@ -952,14 +980,16 @@ def determine_resume_point(job: TranslationJob):
     if job.raw_transcript_path and os.path.exists(job.raw_transcript_path):
         return JobStatus.FORMATTING_SOURCE_TEXT
 
-    if job.chunks_dir and os.path.exists(job.chunks_dir):
-        return JobStatus.TRANSCRIBING_SOURCE
+    # For audio input only
+    if not is_text_input:
+        if job.chunks_dir and os.path.exists(job.chunks_dir):
+            return JobStatus.TRANSCRIBING_SOURCE
 
-    if job.processed_audio_dir and os.path.exists(job.processed_audio_dir):
-        return JobStatus.PREPROCESSING_AUDIO
+        if job.processed_audio_dir and os.path.exists(job.processed_audio_dir):
+            return JobStatus.PREPROCESSING_AUDIO
 
-    # Start from the beginning
-    return JobStatus.UPLOADED
+    # Start from the beginning (FORMATTING for text, UPLOADED for audio)
+    return JobStatus.FORMATTING_SOURCE_TEXT if is_text_input else JobStatus.UPLOADED
 
 async def process_translation_job(job_id: str, is_retry: bool = False):
     """Background task to process translation job following the 3-step workflow"""
@@ -987,77 +1017,128 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
         
         # === STEP 1: EXTRACT SOURCE TEXT ===
 
-        # Step 1.1: Preprocess Audio
-        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO]:
-            try:
-                job.status = JobStatus.PREPROCESSING_AUDIO
-                job.progress = 5
-                job.message = "Preprocessing audio - cleaning and creating chunks..."
+        # Check if this is a text input job (skip audio preprocessing and transcription)
+        is_text_input = getattr(job, 'input_type', 'audio') == 'text'
 
-                processed_dir = f"/app/outputs/{job_id}/processed"
+        if is_text_input:
+            # TEXT INPUT: Skip audio preprocessing and transcription
+            # Use the uploaded text file directly as the source transcript
+            logger.info(f"Job {job_id}: Text input detected, skipping audio preprocessing and transcription")
 
-                cleaned_audio_path, chunks_dir = await preprocessing_service.preprocess_audio(
-                    job.original_file_path, processed_dir
-                )
-
-                job.processed_audio_dir = processed_dir
-                job.chunks_dir = chunks_dir
-                job.progress = 15
-                save_job_to_disk(job)
-                logger.info(f"Job {job_id}: Audio preprocessing completed")
-            except Exception as e:
-                logger.error(f"Job {job_id}: Audio preprocessing failed: {e}")
-                job.status = JobStatus.FAILED_PREPROCESSING_AUDIO
-                job.error_message = str(e)
-                job.message = f"Audio preprocessing failed: {str(e)}"
-                save_job_to_disk(job)
-                return
-        
-        # Step 1.2: Transcribe with AssemblyAI
-        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE]:
-            try:
-                job.status = JobStatus.TRANSCRIBING_SOURCE
-                job.progress = 20
-                source_lang_name = "English" if job.source_language == "en" else "Japanese"
-                job.message = f"Transcribing {source_lang_name} audio with speaker diarization..."
-
-                raw_transcript_path = f"/app/outputs/{job_id}/transcript_{job.source_language}_raw.txt"
-
-                await transcription_service.transcribe_chunks(job.chunks_dir, raw_transcript_path, job.source_language)
-                job.raw_transcript_path = raw_transcript_path
-                job.progress = 40
-                save_job_to_disk(job)
-                logger.info(f"Job {job_id}: Transcription completed ({job.source_language})")
-            except Exception as e:
-                logger.error(f"Job {job_id}: Transcription failed: {e}")
-                job.status = JobStatus.FAILED_TRANSCRIBING_SOURCE
-                job.error_message = str(e)
-                job.message = f"Transcription failed: {str(e)}"
-                save_job_to_disk(job)
-                return
-        
-        # Step 1.3: Format Text
-        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT]:
             try:
                 job.status = JobStatus.FORMATTING_SOURCE_TEXT
-                job.progress = 45
+                job.progress = 10
                 source_lang_name = "English" if job.source_language == "en" else "Japanese"
-                job.message = f"Formatting {source_lang_name} transcript with speaker tags..."
+                job.message = f"Processing {source_lang_name} text input..."
+                save_job_to_disk(job)
 
+                # Create output directory
+                os.makedirs(f"/app/outputs/{job_id}", exist_ok=True)
+
+                # Read the uploaded text file
+                with open(job.original_file_path, 'r', encoding='utf-8') as f:
+                    source_text = f.read()
+
+                # Check if text has speaker labels, if not add a default one
+                import re
+                has_speaker_labels = bool(re.search(r'^Speaker [A-E]:', source_text, re.MULTILINE))
+
+                if not has_speaker_labels:
+                    # Wrap entire text as Speaker A
+                    logger.info(f"Job {job_id}: No speaker labels found, wrapping as Speaker A")
+                    source_text = f"Speaker A: {source_text}"
+
+                # Save as formatted transcript (skipping raw transcript step)
                 formatted_transcript_path = f"/app/outputs/{job_id}/transcript_{job.source_language}_formatted.txt"
+                with open(formatted_transcript_path, 'w', encoding='utf-8') as f:
+                    f.write(source_text)
 
-                await formatting_service.format_transcript(job.raw_transcript_path, formatted_transcript_path)
                 job.formatted_transcript_path = formatted_transcript_path
                 job.progress = 50
                 save_job_to_disk(job)
-                logger.info(f"Job {job_id}: Text formatting completed")
+                logger.info(f"Job {job_id}: Text input processed as formatted transcript")
+
             except Exception as e:
-                logger.error(f"Job {job_id}: Text formatting failed: {e}")
+                logger.error(f"Job {job_id}: Text processing failed: {e}")
                 job.status = JobStatus.FAILED_FORMATTING_SOURCE_TEXT
                 job.error_message = str(e)
-                job.message = f"Text formatting failed: {str(e)}"
+                job.message = f"Text processing failed: {str(e)}"
                 save_job_to_disk(job)
                 return
+        else:
+            # AUDIO INPUT: Full audio processing pipeline
+
+            # Step 1.1: Preprocess Audio
+            if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO]:
+                try:
+                    job.status = JobStatus.PREPROCESSING_AUDIO
+                    job.progress = 5
+                    job.message = "Preprocessing audio - cleaning and creating chunks..."
+
+                    processed_dir = f"/app/outputs/{job_id}/processed"
+
+                    cleaned_audio_path, chunks_dir = await preprocessing_service.preprocess_audio(
+                        job.original_file_path, processed_dir
+                    )
+
+                    job.processed_audio_dir = processed_dir
+                    job.chunks_dir = chunks_dir
+                    job.progress = 15
+                    save_job_to_disk(job)
+                    logger.info(f"Job {job_id}: Audio preprocessing completed")
+                except Exception as e:
+                    logger.error(f"Job {job_id}: Audio preprocessing failed: {e}")
+                    job.status = JobStatus.FAILED_PREPROCESSING_AUDIO
+                    job.error_message = str(e)
+                    job.message = f"Audio preprocessing failed: {str(e)}"
+                    save_job_to_disk(job)
+                    return
+
+            # Step 1.2: Transcribe with AssemblyAI
+            if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE]:
+                try:
+                    job.status = JobStatus.TRANSCRIBING_SOURCE
+                    job.progress = 20
+                    source_lang_name = "English" if job.source_language == "en" else "Japanese"
+                    job.message = f"Transcribing {source_lang_name} audio with speaker diarization..."
+
+                    raw_transcript_path = f"/app/outputs/{job_id}/transcript_{job.source_language}_raw.txt"
+
+                    await transcription_service.transcribe_chunks(job.chunks_dir, raw_transcript_path, job.source_language)
+                    job.raw_transcript_path = raw_transcript_path
+                    job.progress = 40
+                    save_job_to_disk(job)
+                    logger.info(f"Job {job_id}: Transcription completed ({job.source_language})")
+                except Exception as e:
+                    logger.error(f"Job {job_id}: Transcription failed: {e}")
+                    job.status = JobStatus.FAILED_TRANSCRIBING_SOURCE
+                    job.error_message = str(e)
+                    job.message = f"Transcription failed: {str(e)}"
+                    save_job_to_disk(job)
+                    return
+
+            # Step 1.3: Format Text
+            if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT]:
+                try:
+                    job.status = JobStatus.FORMATTING_SOURCE_TEXT
+                    job.progress = 45
+                    source_lang_name = "English" if job.source_language == "en" else "Japanese"
+                    job.message = f"Formatting {source_lang_name} transcript with speaker tags..."
+
+                    formatted_transcript_path = f"/app/outputs/{job_id}/transcript_{job.source_language}_formatted.txt"
+
+                    await formatting_service.format_transcript(job.raw_transcript_path, formatted_transcript_path)
+                    job.formatted_transcript_path = formatted_transcript_path
+                    job.progress = 50
+                    save_job_to_disk(job)
+                    logger.info(f"Job {job_id}: Text formatting completed")
+                except Exception as e:
+                    logger.error(f"Job {job_id}: Text formatting failed: {e}")
+                    job.status = JobStatus.FAILED_FORMATTING_SOURCE_TEXT
+                    job.error_message = str(e)
+                    job.message = f"Text formatting failed: {str(e)}"
+                    save_job_to_disk(job)
+                    return
         
         # === STEP 2: TRANSLATE TO TARGET LANGUAGE ===
 

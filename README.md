@@ -19,6 +19,7 @@ This application implements a **Module Federation** architecture with the follow
 - 🔗 **Module Federation** - Independent microfrontends with shared dependencies
 - 🔐 **JWT Authentication** - Secure authentication across all microfrontends
 - 🎵 **Audio Processing** - Complete audio translation pipeline
+- 📝 **Text Input Mode** - Translate text directly without audio (see [Text Input Feature](#-text-input-feature))
 - 📊 **Real-time Dashboard** - Analytics and monitoring interface
 - 🐳 **Full Containerization** - Docker-based deployment with health checks
 - 🚀 **Independent Deployment** - Each microfrontend can be deployed separately
@@ -339,6 +340,68 @@ Each microfrontend is independently deployable:
 3. **Token Sharing** - Authentication state shared across all MFs
 4. **Protected Routes** - Each MF can protect its own routes
 5. **Cross-MF Authentication** - Seamless auth state across modules
+
+## 📝 Text Input Feature
+
+The application supports two input modes for translation:
+
+### Input Modes
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **Audio File** | Upload MP3, WAV, M4A, FLAC files | Translate podcasts, interviews, lectures |
+| **Text** | Paste text directly or upload .txt files | Translate articles, documents, scripts |
+
+### How Text Input Works
+
+When you select **Text** mode:
+
+1. **Paste or Type** - Enter text directly in the textarea (up to 50,000 characters)
+2. **Select Direction** - Choose English → Japanese or Japanese → English
+3. **Start Translation** - Text is processed through a streamlined pipeline:
+
+```
+Text Input → Translation (OpenAI) → Text Cleaning → Audio Generation (Google TTS)
+```
+
+**Note:** Text input skips the audio preprocessing and transcription steps, making it faster than audio input.
+
+### Input Limits
+
+| Input Method | Character Limit | Notes |
+|--------------|-----------------|-------|
+| **Textarea (paste)** | 50,000 chars | ~8,000 words, configurable via `TEXT_INPUT_MAX_CHARS` |
+| **.txt file upload** | No limit | Use Audio mode's drag-drop to upload large .txt files |
+
+### Speaker Labels (Optional)
+
+For multi-speaker text, you can include speaker labels:
+
+```
+Speaker A: Hello, how are you today?
+Speaker B: I'm doing great, thanks for asking!
+Speaker A: That's wonderful to hear.
+```
+
+If no speaker labels are provided, the entire text is treated as **Speaker A**.
+
+### Configuration
+
+The text input character limit is configurable in `translation-service/.env`:
+
+```bash
+# Maximum characters for text input textarea (default: 50000)
+TEXT_INPUT_MAX_CHARS=50000
+```
+
+### Features Available for Text Input
+
+All standard features work with text input:
+- **Job Status Tracking** - Real-time progress updates
+- **Job History** - View past text translation jobs
+- **Audio Regeneration** - Re-generate audio with different voices
+- **Retry on Failure** - Smart resume from last successful step
+- **Download Results** - Download translated text and generated audio
 
 ## 🌐 API Endpoints
 

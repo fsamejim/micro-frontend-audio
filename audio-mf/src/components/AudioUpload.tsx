@@ -15,7 +15,10 @@ import {
     Link,
     Divider,
     FormControlLabel,
-    Checkbox
+    Checkbox,
+    TextField,
+    ToggleButton,
+    ToggleButtonGroup
 } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material/Select';
 import {
@@ -25,7 +28,8 @@ import {
     Replay as ReplayIcon,
     Close as CloseIcon,
     PlayArrow as PlayIcon,
-    Stop as StopIcon
+    Stop as StopIcon,
+    TextFields as TextIcon
 } from '@mui/icons-material';
 import { translationService } from '../services/translationService';
 import type { JobStatusResponse, Voice } from '../types/translation';
@@ -54,6 +58,11 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
     const [success, setSuccess] = useState<string | null>(null);
     const [languageDirection, setLanguageDirection] = useState<LanguageDirection>('EN_JP');
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Input mode state: 'audio' or 'text'
+    const [inputMode, setInputMode] = useState<'audio' | 'text'>('audio');
+    const [textInput, setTextInput] = useState<string>('');
+    const TEXT_MAX_CHARS = translationService.TEXT_INPUT_MAX_CHARS;
 
     // Regeneration mode state
     const [speakers, setSpeakers] = useState<string[]>([]);
@@ -361,12 +370,24 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
     };
 
     const handleUpload = async () => {
-        console.log('Upload clicked - selectedFile:', selectedFile?.name, 'user:', user);
-        
-        if (!selectedFile || !user) {
-            console.log('Upload failed - selectedFile:', !!selectedFile, 'user:', !!user);
-            setError('Please select a file and ensure you are logged in');
-            return;
+        console.log('Upload clicked - inputMode:', inputMode, 'selectedFile:', selectedFile?.name, 'textInput length:', textInput.length, 'user:', user);
+
+        // Validate based on input mode
+        if (inputMode === 'text') {
+            if (!textInput.trim() || !user) {
+                setError('Please enter text and ensure you are logged in');
+                return;
+            }
+            if (textInput.length > TEXT_MAX_CHARS) {
+                setError(`Text exceeds maximum ${TEXT_MAX_CHARS.toLocaleString()} characters`);
+                return;
+            }
+        } else {
+            if (!selectedFile || !user) {
+                console.log('Upload failed - selectedFile:', !!selectedFile, 'user:', !!user);
+                setError('Please select a file and ensure you are logged in');
+                return;
+            }
         }
 
         setUploading(true);
@@ -378,25 +399,39 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
             const sourceLanguage = languageDirection === 'EN_JP' ? 'en' : 'ja';
             const targetLanguage = languageDirection === 'EN_JP' ? 'ja' : 'en';
 
-            const response = await translationService.uploadAudio(selectedFile, user.id, sourceLanguage, targetLanguage);
-            setSuccess(`Upload successful! Job ID: ${response.job_id}`);
-            
+            // Prepare file based on input mode
+            let fileToUpload: File;
+            if (inputMode === 'text') {
+                // Convert text to file
+                fileToUpload = translationService.textToFile(textInput, 'text_input.txt');
+            } else {
+                fileToUpload = selectedFile!;
+            }
+
+            const response = await translationService.uploadAudio(fileToUpload, user.id, sourceLanguage, targetLanguage);
+            const inputLabel = inputMode === 'text' ? 'Text' : 'Audio';
+            setSuccess(`${inputLabel} uploaded successfully! Job ID: ${response.job_id}`);
+
             // Get initial job status
             const jobStatus = await translationService.getJobStatus(response.job_id);
             if (onJobCreated) {
                 onJobCreated(jobStatus);
             }
 
-            // Clear the selected file
-            setSelectedFile(null);
-            if (fileInputRef.current) {
-                fileInputRef.current.value = '';
+            // Clear the input
+            if (inputMode === 'text') {
+                setTextInput('');
+            } else {
+                setSelectedFile(null);
+                if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                }
             }
 
         } catch (err: any) {
             console.error('Upload error:', err);
             console.error('Error response:', err.response?.data);
-            
+
             let errorMessage = 'Upload failed';
             if (err.response?.status === 422) {
                 errorMessage = `Upload validation failed: ${err.response?.data?.detail || 'Invalid request format'}`;
@@ -405,7 +440,7 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
             } else if (err.message) {
                 errorMessage = err.message;
             }
-            
+
             setError(errorMessage);
         } finally {
             setUploading(false);
@@ -688,77 +723,138 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
     return (
         <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
             <Typography variant="h6" gutterBottom>
-                Upload Audio File
+                Upload Source
             </Typography>
 
-            {/* Drag and Drop Area */}
-            <Box
-                onDragEnter={handleDragEnter}
-                onDragLeave={handleDragLeave}
-                onDragOver={handleDragOver}
-                onDrop={handleDrop}
-                sx={{
-                    border: `2px dashed ${dragActive ? '#1976d2' : '#ccc'}`,
-                    borderRadius: 2,
-                    p: 4,
-                    textAlign: 'center',
-                    backgroundColor: dragActive ? '#f3f4f6' : '#fafafa',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s ease',
-                    mb: 2,
-                    '&:hover': {
-                        borderColor: '#1976d2',
-                        backgroundColor: '#f3f4f6'
-                    }
-                }}
-                onClick={() => fileInputRef.current?.click()}
-            >
-                <UploadIcon sx={{ fontSize: 48, color: '#666', mb: 2 }} />
-                <Typography variant="h6" color="textSecondary" gutterBottom>
-                    {dragActive ? 'Drop your audio file here' : 'Drag and drop your audio file here'}
-                </Typography>
-                <Typography variant="body2" color="textSecondary">
-                    or click to browse files
-                </Typography>
-                <Typography variant="caption" display="block" sx={{ mt: 1 }} color="textSecondary">
-                    Supported formats: MP3, WAV, M4A, FLAC (max 300MB)
-                </Typography>
+            {/* Input Mode Toggle */}
+            <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
+                <ToggleButtonGroup
+                    value={inputMode}
+                    exclusive
+                    onChange={(_e, newMode) => {
+                        if (newMode !== null) {
+                            setInputMode(newMode);
+                            setError(null);
+                            setSuccess(null);
+                        }
+                    }}
+                    aria-label="input mode"
+                    disabled={uploading}
+                >
+                    <ToggleButton value="audio" aria-label="audio input">
+                        <AudioIcon sx={{ mr: 1 }} />
+                        Audio File
+                    </ToggleButton>
+                    <ToggleButton value="text" aria-label="text input">
+                        <TextIcon sx={{ mr: 1 }} />
+                        Text
+                    </ToggleButton>
+                </ToggleButtonGroup>
             </Box>
 
-            {/* Hidden File Input */}
-            <input
-                ref={fileInputRef}
-                type="file"
-                accept=".mp3,.wav,.m4a,.flac,audio/*"
-                onChange={handleFileInputChange}
-                style={{ display: 'none' }}
-            />
+            {/* Audio Input Mode */}
+            {inputMode === 'audio' && (
+                <>
+                    {/* Drag and Drop Area */}
+                    <Box
+                        onDragEnter={handleDragEnter}
+                        onDragLeave={handleDragLeave}
+                        onDragOver={handleDragOver}
+                        onDrop={handleDrop}
+                        sx={{
+                            border: `2px dashed ${dragActive ? '#1976d2' : '#ccc'}`,
+                            borderRadius: 2,
+                            p: 4,
+                            textAlign: 'center',
+                            backgroundColor: dragActive ? '#f3f4f6' : '#fafafa',
+                            cursor: 'pointer',
+                            transition: 'all 0.3s ease',
+                            mb: 2,
+                            '&:hover': {
+                                borderColor: '#1976d2',
+                                backgroundColor: '#f3f4f6'
+                            }
+                        }}
+                        onClick={() => fileInputRef.current?.click()}
+                    >
+                        <UploadIcon sx={{ fontSize: 48, color: '#666', mb: 2 }} />
+                        <Typography variant="h6" color="textSecondary" gutterBottom>
+                            {dragActive ? 'Drop your audio file here' : 'Drag and drop your audio file here'}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                            or click to browse files
+                        </Typography>
+                        <Typography variant="caption" display="block" sx={{ mt: 1 }} color="textSecondary">
+                            Supported formats: MP3, WAV, M4A, FLAC, TXT (max 300MB)
+                        </Typography>
+                    </Box>
 
-            {/* Selected File Display */}
-            {selectedFile && (
-                <Box sx={{ mb: 2 }}>
-                    <Paper variant="outlined" sx={{ p: 2 }}>
-                        <Box display="flex" alignItems="center" justifyContent="space-between">
-                            <Box display="flex" alignItems="center">
-                                <AudioIcon sx={{ mr: 1, color: '#1976d2' }} />
-                                <Box>
-                                    <Typography variant="body1" fontWeight="medium">
-                                        {selectedFile.name}
-                                    </Typography>
-                                    <Typography variant="caption" color="textSecondary">
-                                        {formatFileSize(selectedFile.size)}
-                                    </Typography>
+                    {/* Hidden File Input */}
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".mp3,.wav,.m4a,.flac,.txt,audio/*,text/plain"
+                        onChange={handleFileInputChange}
+                        style={{ display: 'none' }}
+                    />
+
+                    {/* Selected File Display */}
+                    {selectedFile && (
+                        <Box sx={{ mb: 2 }}>
+                            <Paper variant="outlined" sx={{ p: 2 }}>
+                                <Box display="flex" alignItems="center" justifyContent="space-between">
+                                    <Box display="flex" alignItems="center">
+                                        <AudioIcon sx={{ mr: 1, color: '#1976d2' }} />
+                                        <Box>
+                                            <Typography variant="body1" fontWeight="medium">
+                                                {selectedFile.name}
+                                            </Typography>
+                                            <Typography variant="caption" color="textSecondary">
+                                                {formatFileSize(selectedFile.size)}
+                                            </Typography>
+                                        </Box>
+                                    </Box>
+                                    <IconButton
+                                        onClick={handleRemoveFile}
+                                        size="small"
+                                        disabled={uploading}
+                                    >
+                                        <DeleteIcon />
+                                    </IconButton>
                                 </Box>
-                            </Box>
-                            <IconButton
-                                onClick={handleRemoveFile}
-                                size="small"
-                                disabled={uploading}
-                            >
-                                <DeleteIcon />
-                            </IconButton>
+                            </Paper>
                         </Box>
-                    </Paper>
+                    )}
+                </>
+            )}
+
+            {/* Text Input Mode */}
+            {inputMode === 'text' && (
+                <Box sx={{ mb: 2 }}>
+                    <TextField
+                        fullWidth
+                        multiline
+                        rows={8}
+                        placeholder="Enter or paste your text here..."
+                        value={textInput}
+                        onChange={(e) => setTextInput(e.target.value)}
+                        disabled={uploading}
+                        variant="outlined"
+                        error={textInput.length > TEXT_MAX_CHARS}
+                        helperText={
+                            <Box component="span" sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span>
+                                    {textInput.length > TEXT_MAX_CHARS
+                                        ? `Exceeds maximum character limit`
+                                        : 'Paste text or type directly. For larger documents, use Audio mode with a .txt file.'}
+                                </span>
+                                <span style={{ color: textInput.length > TEXT_MAX_CHARS ? '#d32f2f' : 'inherit' }}>
+                                    {textInput.length.toLocaleString()} / {TEXT_MAX_CHARS.toLocaleString()}
+                                </span>
+                            </Box>
+                        }
+                        sx={{ mb: 1 }}
+                    />
                 </Box>
             )}
 
@@ -786,11 +882,15 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
                     variant="contained"
                     size="large"
                     onClick={handleUpload}
-                    disabled={!selectedFile || uploading}
+                    disabled={
+                        uploading ||
+                        (inputMode === 'audio' && !selectedFile) ||
+                        (inputMode === 'text' && (!textInput.trim() || textInput.length > TEXT_MAX_CHARS))
+                    }
                     startIcon={<UploadIcon />}
                     sx={{ minWidth: 200 }}
                 >
-                    {uploading ? 'Uploading...' : 'Start Translation'}
+                    {uploading ? 'Processing...' : 'Start Translation'}
                 </Button>
             </Box>
 
