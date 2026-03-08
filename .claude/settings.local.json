@@ -12,7 +12,21 @@
       "Bash(docker exec micro-frontend-audio-service python -c \"import socket; print\\(socket.gethostbyname\\('api.assemblyai.com'\\)\\)\")",
       "Bash(docker exec micro-frontend-audio-service curl -s -o /dev/null -w \"%{http_code}\" --connect-timeout 10 https://api.assemblyai.com)",
       "Bash(docker-compose up --build -d)",
-      "Bash(docker ps --format \"table {{.Names}}\\\\t{{.Status}}\")"
+      "Bash(docker ps --format \"table {{.Names}}\\\\t{{.Status}}\")",
+      "Bash(docker system df && echo \"\" && echo \"=== Volume Details ===\" && docker volume ls --format \"table {{.Name}}\\\\t{{.Driver}}\" | grep -E \"micro|translation|mysql\" && echo \"\" && echo \"=== Translation Outputs Size ===\" && docker exec micro-frontend-audio-service du -sh /app/outputs /app/uploads 2>/dev/null || echo \"Could not check\")",
+      "Bash(docker-compose up -d audio-mf shell-app translation-service)",
+      "Bash(docker-compose down)",
+      "Bash(docker-compose up -d audio-mf shell-app)",
+      "Bash(docker-compose logs shell-app --tail=20)",
+      "Bash(curl -s http://localhost:3003/assets/remoteEntry.js | grep -o \"YouTubeDownload\" | head -1)",
+      "Bash(curl -s \"http://localhost:3003/assets/remoteEntry.js\" | grep -o '\"./YouTubeDownload\"' | head -1)",
+      "Bash(docker-compose down && docker-compose build --no-cache audio-mf shell-app && docker-compose up -d)",
+      "Bash(curl -s http://localhost:3003/assets/remoteEntry.js | grep -o '\"./[^\"]*\"' | tr ',' '\\\\n')",
+      "Bash(echo \"Local:\" && yt-dlp --version && echo \"\" && echo \"Docker:\" && docker-compose exec translation-service yt-dlp --version)",
+      "Bash(docker-compose up -d translation-service)",
+      "Bash(docker-compose build --no-cache dashboard-mf && docker-compose up -d dashboard-mf)",
+      "Bash(git add dashboard-mf/src/components/Dashboard.tsx && git status)",
+      "Bash(git commit -m \"$\\(cat <<'EOF'\nAdded YouTube download feature with hidden UI\n\nFeatures:\n- Backend: YouTube download service with yt-dlp integration\n- UI: Hidden route at /youtube \\(accessible from Dashboard Quick Actions\\)\n- Download audio \\(MP3\\) and/or video-only \\(MP4\\) from YouTube\n- Mac compatibility: Auto-selects best H.264/MP4 format\n- Storage: Auto-cleanup 5 minutes after user downloads\n\nDashboard improvements:\n- Added YouTube Download button to Quick Actions\n- Removed non-functional Job History and Edit Profile cards\n\nDocumentation:\n- Added DEVELOPMENT.md for feature tracking\n- Updated CLAUDE.md with documentation structure\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
