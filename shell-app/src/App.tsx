@@ -10,6 +10,7 @@ import './App.css'
 const AuthLogin = React.lazy(() => import('authMf/Login'))
 const AuthRegister = React.lazy(() => import('authMf/Register'))
 const AudioApp = React.lazy(() => import('audioMf/App'))
+const YouTubeDownload = React.lazy(() => import('audioMf/YouTubeDownload'))
 const DashboardApp = React.lazy(() => import('dashboardMf/App'))
 
 // Component to handle default route redirect
@@ -40,6 +41,13 @@ function App() {
               <Route path="/dashboard" element={
                 <ProtectedRoute>
                   <DashboardApp />
+                </ProtectedRoute>
+              } />
+
+              {/* Hidden route - not in navigation */}
+              <Route path="/youtube" element={
+                <ProtectedRoute>
+                  <YouTubeDownload />
                 </ProtectedRoute>
               } />
 

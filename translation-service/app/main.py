@@ -17,6 +17,7 @@ from .services.translation_service import TranslationService
 from .services.chunk_merging_service import ChunkMergingService
 from .services.text_cleaning_service import TextCleaningService
 from .services.tts_service import TTSService
+from .services.youtube_download import YouTubeDownloadService
 from .models.translation_job import TranslationJob, JobStatus
 
 # Setup logging with timestamps (including uvicorn)
@@ -1267,6 +1268,159 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
         job.error_message = str(e)
         job.message = f"Translation failed: {str(e)}"
         save_job_to_disk(job)
+
+# ============================================
+# YouTube Download Endpoints (Hidden Feature)
+# ============================================
+
+youtube_service = YouTubeDownloadService()
+
+class YouTubeDownloadRequest(BaseModel):
+    url: str
+    type: str = "audio"  # "audio", "video", or "both"
+    format_id: Optional[str] = None  # Optional specific format ID for video
+
+@app.post("/youtube/download")
+async def download_youtube(request: YouTubeDownloadRequest):
+    """
+    Download audio/video from YouTube URL
+
+    - type=audio: Download as MP3 (for translation input)
+    - type=video: Download video-only MP4 (Mac-compatible)
+    - type=both: Download both audio and video
+    """
+    job_id = str(uuid.uuid4())
+
+    try:
+        if request.type == "audio":
+            result = await youtube_service.download_audio(request.url, job_id)
+            if result.success:
+                return {
+                    "job_id": job_id,
+                    "status": "completed",
+                    "type": "audio",
+                    "file_path": result.file_path,
+                    "message": "Audio downloaded successfully"
+                }
+            else:
+                raise HTTPException(status_code=500, detail=result.error)
+
+        elif request.type == "video":
+            result = await youtube_service.download_video(request.url, job_id, request.format_id)
+            if result.success:
+                return {
+                    "job_id": job_id,
+                    "status": "completed",
+                    "type": "video",
+                    "file_path": result.file_path,
+                    "format_id": result.format_id,
+                    "format_note": result.format_note,
+                    "message": "Video downloaded successfully"
+                }
+            else:
+                raise HTTPException(status_code=500, detail=result.error)
+
+        elif request.type == "both":
+            results = await youtube_service.download_both(request.url, job_id)
+            return {
+                "job_id": job_id,
+                "status": "completed",
+                "type": "both",
+                "audio": {
+                    "success": results["audio"].success,
+                    "file_path": results["audio"].file_path,
+                    "error": results["audio"].error
+                },
+                "video": {
+                    "success": results["video"].success,
+                    "file_path": results["video"].file_path,
+                    "format_id": results["video"].format_id,
+                    "format_note": results["video"].format_note,
+                    "error": results["video"].error
+                },
+                "message": "Download completed"
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Invalid type. Use: audio, video, or both")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"YouTube download error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/youtube/formats")
+async def list_youtube_formats(url: str):
+    """List all available formats for a YouTube URL"""
+    try:
+        formats = await youtube_service.list_formats(url)
+        return {
+            "url": url,
+            "formats": formats
+        }
+    except Exception as e:
+        logger.error(f"Error listing formats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+def cleanup_youtube_download(job_dir: str, file_path: str):
+    """Clean up YouTube download files after user downloads them (with 5-min delay)"""
+    import shutil
+    import time
+
+    # Wait 5 minutes before deleting, giving user time to retry if download failed
+    logger.info(f"Scheduled cleanup for {file_path} in 5 minutes")
+    time.sleep(300)  # 5 minutes
+
+    try:
+        # Delete the specific file first
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            logger.info(f"Deleted YouTube file: {file_path}")
+
+        # If directory is empty, remove it too
+        if os.path.exists(job_dir) and not os.listdir(job_dir):
+            shutil.rmtree(job_dir)
+            logger.info(f"Deleted empty YouTube job directory: {job_dir}")
+    except Exception as e:
+        logger.error(f"Error cleaning up YouTube download: {e}")
+
+@app.get("/youtube/download/{job_id}/{file_type}")
+async def get_youtube_file(job_id: str, file_type: str, background_tasks: BackgroundTasks):
+    """
+    Download a previously downloaded YouTube file
+    File is deleted from server after download completes.
+
+    file_type: audio or video
+    """
+    downloads_dir = "/app/downloads"
+    job_dir = os.path.join(downloads_dir, job_id)
+
+    if file_type == "audio":
+        # Check common audio extensions
+        for ext in ["mp3", "m4a", "wav", "opus", "webm"]:
+            file_path = os.path.join(job_dir, f"audio.{ext}")
+            if os.path.exists(file_path):
+                # Schedule cleanup after response is sent
+                background_tasks.add_task(cleanup_youtube_download, job_dir, file_path)
+                return FileResponse(
+                    file_path,
+                    media_type="audio/mpeg",
+                    filename=f"youtube_audio_{job_id}.{ext}"
+                )
+    elif file_type == "video":
+        # Check common video extensions
+        for ext in ["mp4", "webm", "mkv"]:
+            file_path = os.path.join(job_dir, f"video.{ext}")
+            if os.path.exists(file_path):
+                # Schedule cleanup after response is sent
+                background_tasks.add_task(cleanup_youtube_download, job_dir, file_path)
+                return FileResponse(
+                    file_path,
+                    media_type="video/mp4",
+                    filename=f"youtube_video_{job_id}.{ext}"
+                )
+
+    raise HTTPException(status_code=404, detail=f"File not found: {file_type}")
 
 if __name__ == "__main__":
     import uvicorn

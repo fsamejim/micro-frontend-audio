@@ -68,6 +68,7 @@ services:
     volumes:
       - translation_uploads:/app/uploads
       - translation_outputs:/app/outputs
+      - translation_downloads:/app/downloads
       - ./translation-service/google-credentials.json:/app/credentials/google-credentials.json:ro
     networks:
       micro-frontend-audio-network:
@@ -180,6 +181,8 @@ volumes:
   translation_uploads:
     driver: local
   translation_outputs:
+    driver: local
+  translation_downloads:
     driver: local
 
 networks:

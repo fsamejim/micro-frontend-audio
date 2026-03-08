@@ -18,6 +18,11 @@ declare module 'audioMf/App' {
   export default App
 }
 
+declare module 'audioMf/YouTubeDownload' {
+  const YouTubeDownload: React.ComponentType
+  export default YouTubeDownload
+}
+
 declare module 'dashboardMf/Dashboard' {
   const Dashboard: React.ComponentType
   export default Dashboard

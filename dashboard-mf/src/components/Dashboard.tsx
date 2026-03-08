@@ -11,9 +11,8 @@ import {
 } from '@mui/material';
 import {
   AudioFile as AudioIcon,
-  Person as PersonIcon,
-  History as HistoryIcon,
-  ExitToApp as LogoutIcon
+  ExitToApp as LogoutIcon,
+  Download as DownloadIcon
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { UserProfile } from './UserProfile';
@@ -26,8 +25,8 @@ export const Dashboard: React.FC = () => {
     window.location.href = '/audio';
   };
 
-  const handleNavigateToHistory = () => {
-    window.location.href = '/audio';
+  const handleNavigateToYouTube = () => {
+    window.location.href = '/youtube';
   };
 
   return (
@@ -59,7 +58,7 @@ export const Dashboard: React.FC = () => {
         <Typography variant="h6" gutterBottom>
           Quick Actions
         </Typography>
-        <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' } }}>
+        <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' } }}>
             {/* Upload Audio Card */}
             <Box>
               <Card>
@@ -87,54 +86,29 @@ export const Dashboard: React.FC = () => {
               </Card>
             </Box>
 
-            {/* View History Card */}
+            {/* YouTube Download Card */}
             <Box>
               <Card>
                 <CardContent>
                   <Box display="flex" alignItems="center" mb={2}>
-                    <HistoryIcon color="primary" sx={{ mr: 1 }} />
+                    <DownloadIcon color="secondary" sx={{ mr: 1 }} />
                     <Typography variant="h6">
-                      Job History
+                      YouTube
                     </Typography>
                   </Box>
                   <Typography variant="body2" color="text.secondary">
-                    View your translation history
+                    Download audio/video from YouTube
                   </Typography>
                 </CardContent>
                 <CardActions>
                   <Button
                     size="small"
                     variant="outlined"
-                    onClick={handleNavigateToHistory}
-                    startIcon={<HistoryIcon />}
+                    color="secondary"
+                    onClick={handleNavigateToYouTube}
+                    startIcon={<DownloadIcon />}
                   >
-                    View History
-                  </Button>
-                </CardActions>
-              </Card>
-            </Box>
-
-            {/* Profile Settings Card */}
-            <Box>
-              <Card>
-                <CardContent>
-                  <Box display="flex" alignItems="center" mb={2}>
-                    <PersonIcon color="primary" sx={{ mr: 1 }} />
-                    <Typography variant="h6">
-                      Profile
-                    </Typography>
-                  </Box>
-                  <Typography variant="body2" color="text.secondary">
-                    Manage your account settings
-                  </Typography>
-                </CardContent>
-                <CardActions>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    startIcon={<PersonIcon />}
-                  >
-                    Edit Profile
+                    Download
                   </Button>
                 </CardActions>
               </Card>
