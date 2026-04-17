@@ -443,7 +443,8 @@ async def get_available_voices(language_code: str = "ja"):
         return {
             "language_code": language_code,
             "voices": voices,
-            "documentation_url": "https://cloud.google.com/text-to-speech/docs/voices"
+            "documentation_url": "https://cloud.google.com/text-to-speech/docs/voices",
+            "default_speaking_rate": tts_service.speaking_rate
         }
     except Exception as e:
         logger.error(f"Failed to get voices: {e}")

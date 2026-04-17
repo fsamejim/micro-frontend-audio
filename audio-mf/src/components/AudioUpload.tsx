@@ -140,6 +140,7 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
             const voicesResponse = await translationService.getAvailableVoices(lang);
             setUploadAvailableVoices(voicesResponse.voices);
             setUploadVoicesDocUrl(voicesResponse.documentation_url);
+            setUploadSpeakingRate(voicesResponse.default_speaking_rate);
         } catch (err: any) {
             setError(`Failed to load voices: ${err.message}`);
         } finally {
@@ -182,6 +183,7 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
             console.log(`Loaded ${voicesResponse.voices.length} voices:`, voicesResponse.voices.slice(0, 5));
             setAvailableVoices(voicesResponse.voices);
             setVoicesDocUrl(voicesResponse.documentation_url);
+            setSpeakingRate(voicesResponse.default_speaking_rate);
         } catch (err: any) {
             console.error('Failed to load regeneration data:', err);
             setError(`Failed to load regeneration data: ${err.message}`);

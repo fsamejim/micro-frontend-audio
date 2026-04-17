@@ -35,6 +35,7 @@ export interface VoicesResponse {
     language_code: string;
     voices: Voice[];
     documentation_url: string;
+    default_speaking_rate: number;
 }
 
 export interface SpeakersResponse {
