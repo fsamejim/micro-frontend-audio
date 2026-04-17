@@ -171,7 +171,9 @@ async def upload_audio_file(
     user_id: int,
     file: UploadFile = File(...),
     source_language: str = "en",
-    target_language: str = "ja"
+    target_language: str = "ja",
+    voice_mappings: Optional[str] = None,  # JSON-encoded dict, used for same-language TTS mode
+    speaking_rate: float = 1.2
 ):
     """Upload audio or text file and start translation job"""
 
@@ -181,8 +183,25 @@ async def upload_audio_file(
         raise HTTPException(status_code=400, detail=f"Invalid source_language. Supported: {valid_languages}")
     if target_language not in valid_languages:
         raise HTTPException(status_code=400, detail=f"Invalid target_language. Supported: {valid_languages}")
+
+    # Parse optional voice mappings
+    import json
+    initial_voice_mappings = {}
+    if voice_mappings:
+        try:
+            initial_voice_mappings = json.loads(voice_mappings)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid voice_mappings: must be a JSON object")
+
+    # Validate speaking rate
+    if not (0.5 <= speaking_rate <= 2.0):
+        raise HTTPException(status_code=400, detail="speaking_rate must be between 0.5 and 2.0")
+
+    # Same-language mode is only supported for text input
     if source_language == target_language:
-        raise HTTPException(status_code=400, detail="source_language and target_language must be different")
+        filename_lower = file.filename.lower()
+        if not filename_lower.endswith('.txt'):
+            raise HTTPException(status_code=400, detail="Same-language mode (e.g. EN→EN) is only supported for text input")
 
     # Determine input type based on file extension
     filename_lower = file.filename.lower()
@@ -234,14 +253,17 @@ async def upload_audio_file(
         created_at=datetime.now(),
         input_type=input_type,
         source_language=source_language,
-        target_language=target_language
+        target_language=target_language,
+        initial_voice_mappings=initial_voice_mappings,
+        initial_speaking_rate=speaking_rate
     )
 
     jobs_storage[job_id] = job
     save_job_to_disk(job)  # Persist to JSON file
 
     input_label = "Text" if input_type == "text" else "Audio"
-    logger.info(f"Created job {job_id} ({input_type}) with translation direction: {source_language} -> {target_language}")
+    mode = "same-language TTS" if source_language == target_language else "translation"
+    logger.info(f"Created job {job_id} ({input_type}, {mode}) with direction: {source_language} -> {target_language}")
 
     # Start processing in background
     background_tasks.add_task(process_translation_job, job_id)
@@ -1141,10 +1163,37 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                     save_job_to_disk(job)
                     return
         
-        # === STEP 2: TRANSLATE TO TARGET LANGUAGE ===
+        # === STEP 2: TRANSLATE TO TARGET LANGUAGE (skipped in same-language mode) ===
+
+        is_same_language = job.source_language == job.target_language
+
+        if is_same_language:
+            # Same-language mode: copy source transcript directly as clean target, skip all translation steps
+            if not job.clean_target_path or not os.path.exists(job.clean_target_path):
+                try:
+                    import shutil
+                    job.status = JobStatus.CLEANING_TARGET_TEXT
+                    job.progress = 85
+                    lang_name = "English" if job.target_language == "en" else "Japanese"
+                    job.message = f"Preparing {lang_name} text for audio generation..."
+                    save_job_to_disk(job)
+
+                    clean_path = f"/app/outputs/{job_id}/transcript_{job.target_language}_clean.txt"
+                    shutil.copy(job.formatted_transcript_path, clean_path)
+                    job.clean_target_path = clean_path
+                    job.merged_target_path = clean_path
+                    save_job_to_disk(job)
+                    logger.info(f"Job {job_id}: Same-language mode, source transcript copied as target")
+                except Exception as e:
+                    logger.error(f"Job {job_id}: Same-language transcript prep failed: {e}")
+                    job.status = JobStatus.FAILED_CLEANING_TARGET_TEXT
+                    job.error_message = str(e)
+                    job.message = f"Text preparation failed: {str(e)}"
+                    save_job_to_disk(job)
+                    return
 
         # Step 2.1: Translate in Chunks
-        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET]:
+        if not is_same_language and resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET]:
             try:
                 job.status = JobStatus.TRANSLATING_TO_TARGET
                 job.progress = 55
@@ -1173,7 +1222,7 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 return
         
         # Step 2.2: Merge Chunks
-        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET, JobStatus.MERGING_TARGET_CHUNKS]:
+        if not is_same_language and resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET, JobStatus.MERGING_TARGET_CHUNKS]:
             try:
                 job.status = JobStatus.MERGING_TARGET_CHUNKS
                 job.progress = 75
@@ -1196,7 +1245,7 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 return
         
         # Step 2.3: Clean Target Text
-        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET, JobStatus.MERGING_TARGET_CHUNKS, JobStatus.CLEANING_TARGET_TEXT]:
+        if not is_same_language and resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET, JobStatus.MERGING_TARGET_CHUNKS, JobStatus.CLEANING_TARGET_TEXT]:
             try:
                 job.status = JobStatus.CLEANING_TARGET_TEXT
                 job.progress = 82
@@ -1231,12 +1280,25 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 audio_output_dir = f"/app/outputs/{job_id}/audio_segments"
                 final_audio_path = f"/app/outputs/{job_id}/full_audio_{job.target_language}.mp3"
 
-                await tts_service.generate_audio(
-                    job.clean_target_path,
-                    audio_output_dir,
-                    final_audio_path,
-                    job.target_language
-                )
+                initial_mappings = getattr(job, 'initial_voice_mappings', None) or {}
+                initial_rate = getattr(job, 'initial_speaking_rate', 1.2) or 1.2
+
+                if initial_mappings:
+                    await tts_service.generate_audio_with_custom_voices(
+                        input_file=job.clean_target_path,
+                        voice_mappings=initial_mappings,
+                        speaking_rate=initial_rate,
+                        output_dir=audio_output_dir,
+                        output_file=final_audio_path,
+                        language_code=job.target_language
+                    )
+                else:
+                    await tts_service.generate_audio(
+                        job.clean_target_path,
+                        audio_output_dir,
+                        final_audio_path,
+                        job.target_language
+                    )
 
                 job.audio_output_dir = audio_output_dir
                 job.final_target_audio_path = final_audio_path
