@@ -272,9 +272,24 @@ class TTSService:
             # English sentence endings
             sentence_pattern = r'(?<=[.!?\n])\s*'
 
-        for sentence in re.split(sentence_pattern, text):
+        sentences = re.split(sentence_pattern, text)
+
+        for sentence in sentences:
             sentence = sentence.strip()
             if not sentence:
+                continue
+
+            # For Japanese: if a single sentence unit exceeds 300 bytes, Chirp3-HD will
+            # reject it. Flush the current chunk and emit each 、-fragment as its own
+            # chunk so every TTS call stays within the voice's sentence-length limit.
+            if language_code == "ja" and len(sentence.encode("utf-8")) > 300:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = ""
+                for sub in re.split(r'(?<=、)', sentence):
+                    sub = sub.strip()
+                    if sub:
+                        chunks.append(sub)
                 continue
 
             test_chunk = current_chunk + (" " if current_chunk and language_code == "en" else "") + sentence
