@@ -307,8 +307,8 @@ async def get_job_status(job_id: str) -> JobStatusResponse:
             "version": 1,
             "type": "target_audio_v1",
             "available": True,
-            "voice_mappings": {},  # Original uses default voices
-            "speaking_rate": 1.2  # Default rate
+            "voice_mappings": job.initial_voice_mappings or {},
+            "speaking_rate": job.initial_speaking_rate
         })
     # Add additional versions from audio_versions field
     for version_info in job.audio_versions:
@@ -403,8 +403,8 @@ async def get_user_jobs(user_id: int):
         if job.final_target_audio_path and os.path.exists(job.final_target_audio_path):
             audio_versions.append({
                 "version": 1,
-                "speaking_rate": 1.2,
-                "voice_mappings": {}
+                "speaking_rate": job.initial_speaking_rate,
+                "voice_mappings": job.initial_voice_mappings or {}
             })
         for version_info in job.audio_versions:
             voice_mappings = version_info.get("effective_voice_mappings") or version_info.get("voice_mappings", {})
@@ -423,6 +423,9 @@ async def get_user_jobs(user_id: int):
             "completed_at": job.completed_at.isoformat() if job.completed_at else None,
             "audio_versions": audio_versions
         })
+
+    # Sort by completed_at descending (most recent first), with None values at the end
+    user_jobs.sort(key=lambda x: x["completed_at"] or "", reverse=True)
 
     return {"jobs": user_jobs}
 
