@@ -63,6 +63,10 @@ class TranslationJob(BaseModel):
     # Each version contains: {"version": 1, "path": "...", "voice_mappings": {...}, "speaking_rate": 1.2, "created_at": "..."}
     audio_versions: List[Dict[str, Any]] = []
 
+    # Initial voice mappings and speaking rate for same-language TTS mode
+    initial_voice_mappings: Dict[str, str] = {}
+    initial_speaking_rate: float = 1.2
+
     # Resume tracking
     current_step: int = 1
     current_substep: int = 1

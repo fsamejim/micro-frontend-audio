@@ -9,20 +9,26 @@ export const translationService = {
         file: File,
         userId: number,
         sourceLanguage: string = 'en',
-        targetLanguage: string = 'ja'
+        targetLanguage: string = 'ja',
+        voiceMappings?: Record<string, string>,
+        speakingRate?: number
     ): Promise<UploadResponse> => {
+        let url = `${TRANSLATION_API_URL}/translation/upload?user_id=${userId}&source_language=${sourceLanguage}&target_language=${targetLanguage}`;
+        if (voiceMappings && Object.keys(voiceMappings).length > 0) {
+            url += `&voice_mappings=${encodeURIComponent(JSON.stringify(voiceMappings))}`;
+        }
+        if (speakingRate !== undefined) {
+            url += `&speaking_rate=${speakingRate}`;
+        }
+
         const formData = new FormData();
         formData.append('file', file);
 
-        const response = await axios.post(
-            `${TRANSLATION_API_URL}/translation/upload?user_id=${userId}&source_language=${sourceLanguage}&target_language=${targetLanguage}`,
-            formData,
-            {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            }
-        );
+        const response = await axios.post(url, formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        });
 
         return response.data;
     },

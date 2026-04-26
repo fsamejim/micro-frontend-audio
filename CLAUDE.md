@@ -9,6 +9,27 @@ This is a full-stack web application consisting of:
 2. **Backend**: Spring Boot 3.2.3 Java application with Spring Security, JPA, and JWT authentication
 3. **Database**: MySQL database for data persistence
 
+## Documentation Structure
+
+This project uses two markdown files for different purposes:
+
+| File | Purpose | When to Use |
+|------|---------|-------------|
+| **CLAUDE.md** | Instructions for Claude Code | Commands, workflows, rules to follow |
+| **DEVELOPMENT.md** | Project knowledge base | Features, decisions, technical findings |
+
+**CLAUDE.md** (this file):
+- Auto-loaded every session - Claude sees this immediately
+- Contains: commands to run, project structure, development modes
+- Update when: workflows or rules change
+
+**DEVELOPMENT.md**:
+- Reference document - read when needed for context
+- Contains: feature tracking, API reference, storage notes, troubleshooting patterns
+- Update when: features are added, technical decisions are made, issues are solved
+
+Some overlap is acceptable. The key distinction: CLAUDE.md tells Claude *how to work*, DEVELOPMENT.md documents *what exists and why*.
+
 ## Commands Reference
 
 ### Backend (Spring Boot) Commands
