@@ -42,7 +42,7 @@ interface AudioUploadProps {
     onRegenerationStarted?: () => void;
 }
 
-type LanguageDirection = 'EN_JP' | 'JP_EN';
+type LanguageDirection = 'EN_JP' | 'JP_EN' | 'EN_EN' | 'JP_JP';
 
 export const AudioUpload: React.FC<AudioUploadProps> = ({
     onJobCreated,
@@ -62,6 +62,7 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
     // Input mode state: 'audio' or 'text'
     const [inputMode, setInputMode] = useState<'audio' | 'text'>('audio');
     const [textInput, setTextInput] = useState<string>('');
+    const [textDragActive, setTextDragActive] = useState(false);
     const TEXT_MAX_CHARS = translationService.TEXT_INPUT_MAX_CHARS;
 
     // Regeneration mode state
@@ -78,11 +79,33 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
     const [voiceLanguage, setVoiceLanguage] = useState<string>('ja'); // Can differ from transcript for accent mixing
     const [accentMixingEnabled, setAccentMixingEnabled] = useState<boolean>(false);
 
+    // Upload-mode same-language voice selection state
+    const [uploadSpeakers, setUploadSpeakers] = useState<string[]>([]);
+    const [uploadVoiceMappings, setUploadVoiceMappings] = useState<Record<string, string>>({});
+    const [uploadSpeakingRate, setUploadSpeakingRate] = useState<number>(1.2);
+    const [uploadAvailableVoices, setUploadAvailableVoices] = useState<Voice[]>([]);
+    const [loadingUploadVoices, setLoadingUploadVoices] = useState(false);
+    const [uploadVoicesDocUrl, setUploadVoicesDocUrl] = useState<string>('');
+
     // Voice sample playback state (track by speaker, not voice name)
     const [playingSpeaker, setPlayingSpeaker] = useState<string | null>(null);
     const [loadingSpeaker, setLoadingSpeaker] = useState<string | null>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const isPlayingRef = useRef<boolean>(false); // Prevent double-clicks
+
+    // Parse speakers from text and load voices when in same-language text mode
+    useEffect(() => {
+        const isSameLang = languageDirection === 'EN_EN' || languageDirection === 'JP_JP';
+        if (isSameLang && inputMode === 'text') {
+            const detected = parseTextSpeakers(textInput);
+            setUploadSpeakers(detected);
+            setUploadVoiceMappings(prev => {
+                const next: Record<string, string> = {};
+                detected.forEach(s => { next[s] = prev[s] || ''; });
+                return next;
+            });
+        }
+    }, [textInput, languageDirection, inputMode]);
 
     // Load speakers and voices when entering regeneration mode
     useEffect(() => {
@@ -101,6 +124,29 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
             setAccentMixingEnabled(false);
         }
     }, [regenerateJobId]);
+
+    const parseTextSpeakers = (text: string): string[] => {
+        const matches = new Set<string>();
+        text.split('\n').forEach(line => {
+            const m = line.match(/^(Speaker [A-E]):/);
+            if (m) matches.add(m[1]);
+        });
+        return Array.from(matches).sort();
+    };
+
+    const loadUploadVoices = async (lang: string) => {
+        setLoadingUploadVoices(true);
+        try {
+            const voicesResponse = await translationService.getAvailableVoices(lang);
+            setUploadAvailableVoices(voicesResponse.voices);
+            setUploadVoicesDocUrl(voicesResponse.documentation_url);
+            setUploadSpeakingRate(voicesResponse.default_speaking_rate);
+        } catch (err: any) {
+            setError(`Failed to load voices: ${err.message}`);
+        } finally {
+            setLoadingUploadVoices(false);
+        }
+    };
 
     const loadRegenerationData = async () => {
         if (!regenerateJobId) return;
@@ -137,6 +183,7 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
             console.log(`Loaded ${voicesResponse.voices.length} voices:`, voicesResponse.voices.slice(0, 5));
             setAvailableVoices(voicesResponse.voices);
             setVoicesDocUrl(voicesResponse.documentation_url);
+            setSpeakingRate(voicesResponse.default_speaking_rate);
         } catch (err: any) {
             console.error('Failed to load regeneration data:', err);
             setError(`Failed to load regeneration data: ${err.message}`);
@@ -244,7 +291,7 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
     };
 
     // Voice sample playback functions - with double-click prevention
-    const playVoiceSample = async (speaker: string, voiceName: string) => {
+    const playVoiceSample = async (speaker: string, voiceName: string, langOverride?: string) => {
         // Prevent double-clicks
         if (isPlayingRef.current) {
             console.log('Play already in progress, ignoring');
@@ -259,7 +306,7 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
         setLoadingSpeaker(speaker);
 
         try {
-            const sampleUrl = translationService.getVoiceSampleUrl(voiceName, voiceLanguage);
+            const sampleUrl = translationService.getVoiceSampleUrl(voiceName, langOverride || voiceLanguage);
             console.log(`Playing voice sample: ${voiceName}, language: ${voiceLanguage}, URL: ${sampleUrl}`);
 
             // Create new audio element
@@ -318,7 +365,16 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
     }, [regenerateJobId]);
 
     const handleLanguageChange = (event: SelectChangeEvent) => {
-        setLanguageDirection(event.target.value as LanguageDirection);
+        const newDir = event.target.value as LanguageDirection;
+        setLanguageDirection(newDir);
+        if (newDir === 'EN_EN' || newDir === 'JP_JP') {
+            const lang = newDir === 'EN_EN' ? 'en' : 'ja';
+            loadUploadVoices(lang);
+        } else {
+            setUploadAvailableVoices([]);
+            setUploadSpeakers([]);
+            setUploadVoiceMappings({});
+        }
     };
 
     const handleDragEnter = useCallback((e: React.DragEvent) => {
@@ -396,8 +452,11 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
 
         try {
             // Parse language direction into source and target
-            const sourceLanguage = languageDirection === 'EN_JP' ? 'en' : 'ja';
-            const targetLanguage = languageDirection === 'EN_JP' ? 'ja' : 'en';
+            const langCode = (code: string) => code === 'JP' ? 'ja' : 'en';
+            const [srcPart, tgtPart] = languageDirection.split('_');
+            const sourceLanguage = langCode(srcPart);
+            const targetLanguage = langCode(tgtPart);
+            const isSameLang = sourceLanguage === targetLanguage;
 
             // Prepare file based on input mode
             let fileToUpload: File;
@@ -408,7 +467,19 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
                 fileToUpload = selectedFile!;
             }
 
-            const response = await translationService.uploadAudio(fileToUpload, user.id, sourceLanguage, targetLanguage);
+            // Build voice mappings for same-language mode
+            let uploadMappings: Record<string, string> | undefined;
+            let uploadRate: number | undefined;
+            if (isSameLang) {
+                const filtered: Record<string, string> = {};
+                Object.entries(uploadVoiceMappings).forEach(([speaker, voice]) => {
+                    if (voice) filtered[speaker] = voice;
+                });
+                if (Object.keys(filtered).length > 0) uploadMappings = filtered;
+                uploadRate = uploadSpeakingRate;
+            }
+
+            const response = await translationService.uploadAudio(fileToUpload, user.id, sourceLanguage, targetLanguage, uploadMappings, uploadRate);
             const inputLabel = inputMode === 'text' ? 'Text' : 'Audio';
             setSuccess(`${inputLabel} uploaded successfully! Job ID: ${response.job_id}`);
 
@@ -734,6 +805,12 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
                     onChange={(_e, newMode) => {
                         if (newMode !== null) {
                             setInputMode(newMode);
+                            if (newMode === 'audio' && (languageDirection === 'EN_EN' || languageDirection === 'JP_JP')) {
+                                setLanguageDirection('EN_JP');
+                                setUploadAvailableVoices([]);
+                                setUploadSpeakers([]);
+                                setUploadVoiceMappings({});
+                            }
                             setError(null);
                             setSuccess(null);
                         }
@@ -830,12 +907,30 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
 
             {/* Text Input Mode */}
             {inputMode === 'text' && (
-                <Box sx={{ mb: 2 }}>
+                <Box
+                    sx={{ mb: 2 }}
+                    onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setTextDragActive(true); }}
+                    onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setTextDragActive(false); }}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setTextDragActive(false);
+                        const file = e.dataTransfer.files[0];
+                        if (file && (file.type === 'text/plain' || file.name.endsWith('.txt'))) {
+                            const reader = new FileReader();
+                            reader.onload = (ev) => {
+                                setTextInput(ev.target?.result as string || '');
+                            };
+                            reader.readAsText(file, 'utf-8');
+                        }
+                    }}
+                >
                     <TextField
                         fullWidth
                         multiline
                         rows={8}
-                        placeholder="Enter or paste your text here..."
+                        placeholder="Enter or paste your text here, or drag and drop a .txt file..."
                         value={textInput}
                         onChange={(e) => setTextInput(e.target.value)}
                         disabled={uploading}
@@ -846,14 +941,22 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
                                 <span>
                                     {textInput.length > TEXT_MAX_CHARS
                                         ? `Exceeds maximum character limit`
-                                        : 'Paste text or type directly. For larger documents, use Audio mode with a .txt file.'}
+                                        : 'Paste, type, or drop a .txt file.'}
                                 </span>
                                 <span style={{ color: textInput.length > TEXT_MAX_CHARS ? '#d32f2f' : 'inherit' }}>
                                     {textInput.length.toLocaleString()} / {TEXT_MAX_CHARS.toLocaleString()}
                                 </span>
                             </Box>
                         }
-                        sx={{ mb: 1 }}
+                        sx={{
+                            mb: 1,
+                            '& .MuiOutlinedInput-root': textDragActive ? {
+                                borderColor: '#1976d2',
+                                backgroundColor: '#f3f4f6',
+                                outline: '2px dashed #1976d2',
+                                outlineOffset: '-2px',
+                            } : {}
+                        }}
                     />
                 </Box>
             )}
@@ -872,9 +975,121 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
                     >
                         <MenuItem value="EN_JP">English → Japanese</MenuItem>
                         <MenuItem value="JP_EN">Japanese → English</MenuItem>
+                        {inputMode === 'text' && <MenuItem value="EN_EN">English → English (TTS only)</MenuItem>}
+                        {inputMode === 'text' && <MenuItem value="JP_JP">Japanese → Japanese (TTS only)</MenuItem>}
                     </Select>
                 </FormControl>
             </Box>
+
+            {/* Same-language voice selection UI */}
+            {(languageDirection === 'EN_EN' || languageDirection === 'JP_JP') && inputMode === 'text' && (
+                <Box sx={{ mb: 2 }}>
+                    <Divider sx={{ my: 2 }} />
+                    <Typography variant="subtitle2" gutterBottom>
+                        Voice Mappings:
+                    </Typography>
+                    {loadingUploadVoices ? (
+                        <LinearProgress sx={{ mb: 1 }} />
+                    ) : uploadSpeakers.length === 0 ? (
+                        <Typography variant="caption" color="textSecondary">
+                            No speakers detected yet. Use <code>Speaker A:</code>, <code>Speaker B:</code>, etc. labels in your text.
+                        </Typography>
+                    ) : (
+                        <>
+                            <Typography variant="caption" color="textSecondary" display="block" sx={{ mb: 1 }}>
+                                Select a voice for each speaker, or leave empty to use defaults.
+                            </Typography>
+                            {uploadSpeakers.map(speaker => {
+                                const selectedVoice = uploadVoiceMappings[speaker] || '';
+                                const isPlaying = playingSpeaker === speaker;
+                                const isLoading = loadingSpeaker === speaker;
+                                const uploadLang = languageDirection === 'EN_EN' ? 'en' : 'ja';
+                                return (
+                                    <Box key={speaker} sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <FormControl sx={{ flex: 1 }} size="small">
+                                            <InputLabel id={`upload-voice-${speaker}-label`}>{speaker}</InputLabel>
+                                            <Select
+                                                labelId={`upload-voice-${speaker}-label`}
+                                                value={selectedVoice}
+                                                label={speaker}
+                                                onChange={(e) => setUploadVoiceMappings(prev => ({ ...prev, [speaker]: e.target.value }))}
+                                                disabled={uploading}
+                                            >
+                                                <MenuItem value=""><em>Use default voice</em></MenuItem>
+                                                {uploadAvailableVoices.map(voice => (
+                                                    <MenuItem key={voice.name} value={voice.name}>
+                                                        {voice.name} ({voice.gender})
+                                                    </MenuItem>
+                                                ))}
+                                            </Select>
+                                        </FormControl>
+                                        <IconButton
+                                            size="small"
+                                            color={isPlaying ? 'secondary' : 'primary'}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                e.preventDefault();
+                                                if (isPlaying) {
+                                                    stopVoiceSample();
+                                                } else if (selectedVoice) {
+                                                    playVoiceSample(speaker, selectedVoice, uploadLang);
+                                                }
+                                            }}
+                                            disabled={!selectedVoice || uploading || isLoading}
+                                            title={selectedVoice ? (isPlaying ? 'Stop sample' : 'Play sample') : 'Select a voice first'}
+                                            sx={{
+                                                border: '1px solid',
+                                                borderColor: isPlaying ? 'secondary.main' : 'primary.main',
+                                                opacity: selectedVoice ? 1 : 0.5
+                                            }}
+                                        >
+                                            {isLoading ? (
+                                                <Typography variant="caption" sx={{ fontSize: 10, px: 0.5 }}>...</Typography>
+                                            ) : isPlaying ? (
+                                                <StopIcon fontSize="small" />
+                                            ) : (
+                                                <PlayIcon fontSize="small" />
+                                            )}
+                                        </IconButton>
+                                    </Box>
+                                );
+                            })}
+                        </>
+                    )}
+
+                    <Divider sx={{ my: 2 }} />
+
+                    {/* Speaking Rate */}
+                    <Typography variant="subtitle2" gutterBottom>
+                        Speaking Rate: {uploadSpeakingRate.toFixed(1)}x
+                    </Typography>
+                    <Box sx={{ px: 2, mb: 2 }}>
+                        <Slider
+                            value={uploadSpeakingRate}
+                            onChange={(_e, v) => setUploadSpeakingRate(v as number)}
+                            min={0.5}
+                            max={2.0}
+                            step={0.1}
+                            marks={[
+                                { value: 0.5, label: '0.5x' },
+                                { value: 1.0, label: '1.0x' },
+                                { value: 1.5, label: '1.5x' },
+                                { value: 2.0, label: '2.0x' }
+                            ]}
+                            disabled={uploading}
+                        />
+                    </Box>
+
+                    {uploadVoicesDocUrl && (
+                        <Typography variant="caption" color="textSecondary" display="block">
+                            Available voices:{' '}
+                            <Link href={uploadVoicesDocUrl} target="_blank" rel="noopener noreferrer">
+                                {uploadVoicesDocUrl}
+                            </Link>
+                        </Typography>
+                    )}
+                </Box>
+            )}
 
             {/* Upload Button */}
             <Box display="flex" justifyContent="center" mb={2}>
@@ -890,7 +1105,7 @@ export const AudioUpload: React.FC<AudioUploadProps> = ({
                     startIcon={<UploadIcon />}
                     sx={{ minWidth: 200 }}
                 >
-                    {uploading ? 'Processing...' : 'Start Translation'}
+                    {uploading ? 'Processing...' : (languageDirection === 'EN_EN' || languageDirection === 'JP_JP') ? 'Generate Audio' : 'Start Translation'}
                 </Button>
             </Box>
 

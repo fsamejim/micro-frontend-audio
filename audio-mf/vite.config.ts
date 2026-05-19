@@ -19,6 +19,7 @@ export default defineConfig(({ mode }) => {
           './AudioUpload': './src/components/AudioUpload.tsx',
           './JobStatus': './src/components/JobStatus.tsx',
           './JobHistory': './src/components/JobHistory.tsx',
+          './YouTubeDownload': './src/components/YouTubeDownload.tsx',
         },
         shared: ['react', 'react-dom']
       }),

@@ -256,7 +256,7 @@ class TTSService:
         logger.info(f"Parsed {len(segments)} dialogue segments")
         return segments
     
-    def _split_text_by_length(self, text: str, language_code: str = "ja", max_length: int = None) -> List[str]:
+    def _split_text_by_length(self, text: str, language_code: str = "ja", max_length: int = None, voice_name: str = None) -> List[str]:
         """Split text into chunks at sentence boundaries, matching your working version"""
         if max_length is None:
             max_length = self.max_text_length
@@ -264,17 +264,46 @@ class TTSService:
         chunks = []
         current_chunk = ""
 
+        # Chirp3-HD voices have stricter sentence length limits and struggle with
+        # mixed Japanese/English content. Split more aggressively for these voices.
+        is_chirp3_hd = voice_name and "Chirp3-HD" in voice_name
+
+        # For Chirp3-HD with Japanese: use a much smaller max_length to keep chunks small
+        # These voices reject long sentences even if under the normal byte limit
+        if is_chirp3_hd and language_code == "ja":
+            max_length = min(max_length, 100)
+
         # Split by sentence endings based on language
         if language_code == "ja":
-            # Japanese sentence endings
-            sentence_pattern = r'(?<=[。！？\n])'
+            if is_chirp3_hd:
+                # For Chirp3-HD: also split on closing brackets 」 to separate
+                # embedded English quotes from Japanese text
+                sentence_pattern = r'(?<=[。！？」\n])'
+            else:
+                # Japanese sentence endings
+                sentence_pattern = r'(?<=[。！？\n])'
         else:
             # English sentence endings
             sentence_pattern = r'(?<=[.!?\n])\s*'
 
-        for sentence in re.split(sentence_pattern, text):
+        sentences = re.split(sentence_pattern, text)
+
+        for sentence in sentences:
             sentence = sentence.strip()
             if not sentence:
+                continue
+
+            # For Japanese: if a single sentence unit exceeds 300 bytes, Chirp3-HD will
+            # reject it. Flush the current chunk and emit each 、-fragment as its own
+            # chunk so every TTS call stays within the voice's sentence-length limit.
+            if language_code == "ja" and len(sentence.encode("utf-8")) > 300:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = ""
+                for sub in re.split(r'(?<=、)', sentence):
+                    sub = sub.strip()
+                    if sub:
+                        chunks.append(sub)
                 continue
 
             test_chunk = current_chunk + (" " if current_chunk and language_code == "en" else "") + sentence
@@ -686,8 +715,8 @@ class TTSService:
                         max_chunk_length = self.max_text_length
 
                     # Split long text into chunks if needed
-                    text_chunks = self._split_text_by_length(text, language_code, max_chunk_length)
-                    logger.info(f"Split text into {len(text_chunks)} chunks (max_length={max_chunk_length})")
+                    text_chunks = self._split_text_by_length(text, language_code, max_chunk_length, voice_name)
+                    logger.info(f"Split text into {len(text_chunks)} chunks (max_length={max_chunk_length}, voice={voice_name})")
                     if len(text_chunks) > 1:
                         for idx, chunk in enumerate(text_chunks):
                             logger.info(f"  Chunk {idx+1}: {len(chunk)} chars, starts with: {chunk[:50]}...")

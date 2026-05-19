@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app/
 
 # Create directories for file storage
-RUN mkdir -p /app/uploads /app/outputs
+RUN mkdir -p /app/uploads /app/outputs /app/downloads
 
 # Create non-root user for security
 RUN groupadd -r translation && useradd -r -g translation translation

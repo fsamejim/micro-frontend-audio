@@ -17,6 +17,7 @@ from .services.translation_service import TranslationService
 from .services.chunk_merging_service import ChunkMergingService
 from .services.text_cleaning_service import TextCleaningService
 from .services.tts_service import TTSService
+from .services.youtube_download import YouTubeDownloadService
 from .models.translation_job import TranslationJob, JobStatus
 
 # Setup logging with timestamps (including uvicorn)
@@ -170,7 +171,9 @@ async def upload_audio_file(
     user_id: int,
     file: UploadFile = File(...),
     source_language: str = "en",
-    target_language: str = "ja"
+    target_language: str = "ja",
+    voice_mappings: Optional[str] = None,  # JSON-encoded dict, used for same-language TTS mode
+    speaking_rate: float = 1.2
 ):
     """Upload audio or text file and start translation job"""
 
@@ -180,8 +183,25 @@ async def upload_audio_file(
         raise HTTPException(status_code=400, detail=f"Invalid source_language. Supported: {valid_languages}")
     if target_language not in valid_languages:
         raise HTTPException(status_code=400, detail=f"Invalid target_language. Supported: {valid_languages}")
+
+    # Parse optional voice mappings
+    import json
+    initial_voice_mappings = {}
+    if voice_mappings:
+        try:
+            initial_voice_mappings = json.loads(voice_mappings)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid voice_mappings: must be a JSON object")
+
+    # Validate speaking rate
+    if not (0.5 <= speaking_rate <= 2.0):
+        raise HTTPException(status_code=400, detail="speaking_rate must be between 0.5 and 2.0")
+
+    # Same-language mode is only supported for text input
     if source_language == target_language:
-        raise HTTPException(status_code=400, detail="source_language and target_language must be different")
+        filename_lower = file.filename.lower()
+        if not filename_lower.endswith('.txt'):
+            raise HTTPException(status_code=400, detail="Same-language mode (e.g. EN→EN) is only supported for text input")
 
     # Determine input type based on file extension
     filename_lower = file.filename.lower()
@@ -233,14 +253,17 @@ async def upload_audio_file(
         created_at=datetime.now(),
         input_type=input_type,
         source_language=source_language,
-        target_language=target_language
+        target_language=target_language,
+        initial_voice_mappings=initial_voice_mappings,
+        initial_speaking_rate=speaking_rate
     )
 
     jobs_storage[job_id] = job
     save_job_to_disk(job)  # Persist to JSON file
 
     input_label = "Text" if input_type == "text" else "Audio"
-    logger.info(f"Created job {job_id} ({input_type}) with translation direction: {source_language} -> {target_language}")
+    mode = "same-language TTS" if source_language == target_language else "translation"
+    logger.info(f"Created job {job_id} ({input_type}, {mode}) with direction: {source_language} -> {target_language}")
 
     # Start processing in background
     background_tasks.add_task(process_translation_job, job_id)
@@ -284,8 +307,8 @@ async def get_job_status(job_id: str) -> JobStatusResponse:
             "version": 1,
             "type": "target_audio_v1",
             "available": True,
-            "voice_mappings": {},  # Original uses default voices
-            "speaking_rate": 1.2  # Default rate
+            "voice_mappings": job.initial_voice_mappings or {},
+            "speaking_rate": job.initial_speaking_rate
         })
     # Add additional versions from audio_versions field
     for version_info in job.audio_versions:
@@ -380,8 +403,8 @@ async def get_user_jobs(user_id: int):
         if job.final_target_audio_path and os.path.exists(job.final_target_audio_path):
             audio_versions.append({
                 "version": 1,
-                "speaking_rate": 1.2,
-                "voice_mappings": {}
+                "speaking_rate": job.initial_speaking_rate,
+                "voice_mappings": job.initial_voice_mappings or {}
             })
         for version_info in job.audio_versions:
             voice_mappings = version_info.get("effective_voice_mappings") or version_info.get("voice_mappings", {})
@@ -400,6 +423,9 @@ async def get_user_jobs(user_id: int):
             "completed_at": job.completed_at.isoformat() if job.completed_at else None,
             "audio_versions": audio_versions
         })
+
+    # Sort by completed_at descending (most recent first), with None values at the end
+    user_jobs.sort(key=lambda x: x["completed_at"] or "", reverse=True)
 
     return {"jobs": user_jobs}
 
@@ -420,7 +446,8 @@ async def get_available_voices(language_code: str = "ja"):
         return {
             "language_code": language_code,
             "voices": voices,
-            "documentation_url": "https://cloud.google.com/text-to-speech/docs/voices"
+            "documentation_url": "https://cloud.google.com/text-to-speech/docs/voices",
+            "default_speaking_rate": tts_service.speaking_rate
         }
     except Exception as e:
         logger.error(f"Failed to get voices: {e}")
@@ -1140,10 +1167,37 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                     save_job_to_disk(job)
                     return
         
-        # === STEP 2: TRANSLATE TO TARGET LANGUAGE ===
+        # === STEP 2: TRANSLATE TO TARGET LANGUAGE (skipped in same-language mode) ===
+
+        is_same_language = job.source_language == job.target_language
+
+        if is_same_language:
+            # Same-language mode: copy source transcript directly as clean target, skip all translation steps
+            if not job.clean_target_path or not os.path.exists(job.clean_target_path):
+                try:
+                    import shutil
+                    job.status = JobStatus.CLEANING_TARGET_TEXT
+                    job.progress = 85
+                    lang_name = "English" if job.target_language == "en" else "Japanese"
+                    job.message = f"Preparing {lang_name} text for audio generation..."
+                    save_job_to_disk(job)
+
+                    clean_path = f"/app/outputs/{job_id}/transcript_{job.target_language}_clean.txt"
+                    shutil.copy(job.formatted_transcript_path, clean_path)
+                    job.clean_target_path = clean_path
+                    job.merged_target_path = clean_path
+                    save_job_to_disk(job)
+                    logger.info(f"Job {job_id}: Same-language mode, source transcript copied as target")
+                except Exception as e:
+                    logger.error(f"Job {job_id}: Same-language transcript prep failed: {e}")
+                    job.status = JobStatus.FAILED_CLEANING_TARGET_TEXT
+                    job.error_message = str(e)
+                    job.message = f"Text preparation failed: {str(e)}"
+                    save_job_to_disk(job)
+                    return
 
         # Step 2.1: Translate in Chunks
-        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET]:
+        if not is_same_language and resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET]:
             try:
                 job.status = JobStatus.TRANSLATING_TO_TARGET
                 job.progress = 55
@@ -1172,7 +1226,7 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 return
         
         # Step 2.2: Merge Chunks
-        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET, JobStatus.MERGING_TARGET_CHUNKS]:
+        if not is_same_language and resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET, JobStatus.MERGING_TARGET_CHUNKS]:
             try:
                 job.status = JobStatus.MERGING_TARGET_CHUNKS
                 job.progress = 75
@@ -1195,7 +1249,7 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 return
         
         # Step 2.3: Clean Target Text
-        if resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET, JobStatus.MERGING_TARGET_CHUNKS, JobStatus.CLEANING_TARGET_TEXT]:
+        if not is_same_language and resume_from in [JobStatus.UPLOADED, JobStatus.PREPROCESSING_AUDIO, JobStatus.TRANSCRIBING_SOURCE, JobStatus.FORMATTING_SOURCE_TEXT, JobStatus.TRANSLATING_TO_TARGET, JobStatus.MERGING_TARGET_CHUNKS, JobStatus.CLEANING_TARGET_TEXT]:
             try:
                 job.status = JobStatus.CLEANING_TARGET_TEXT
                 job.progress = 82
@@ -1230,12 +1284,25 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
                 audio_output_dir = f"/app/outputs/{job_id}/audio_segments"
                 final_audio_path = f"/app/outputs/{job_id}/full_audio_{job.target_language}.mp3"
 
-                await tts_service.generate_audio(
-                    job.clean_target_path,
-                    audio_output_dir,
-                    final_audio_path,
-                    job.target_language
-                )
+                initial_mappings = getattr(job, 'initial_voice_mappings', None) or {}
+                initial_rate = getattr(job, 'initial_speaking_rate', 1.2) or 1.2
+
+                if initial_mappings:
+                    await tts_service.generate_audio_with_custom_voices(
+                        input_file=job.clean_target_path,
+                        voice_mappings=initial_mappings,
+                        speaking_rate=initial_rate,
+                        output_dir=audio_output_dir,
+                        output_file=final_audio_path,
+                        language_code=job.target_language
+                    )
+                else:
+                    await tts_service.generate_audio(
+                        job.clean_target_path,
+                        audio_output_dir,
+                        final_audio_path,
+                        job.target_language
+                    )
 
                 job.audio_output_dir = audio_output_dir
                 job.final_target_audio_path = final_audio_path
@@ -1267,6 +1334,159 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
         job.error_message = str(e)
         job.message = f"Translation failed: {str(e)}"
         save_job_to_disk(job)
+
+# ============================================
+# YouTube Download Endpoints (Hidden Feature)
+# ============================================
+
+youtube_service = YouTubeDownloadService()
+
+class YouTubeDownloadRequest(BaseModel):
+    url: str
+    type: str = "audio"  # "audio", "video", or "both"
+    format_id: Optional[str] = None  # Optional specific format ID for video
+
+@app.post("/youtube/download")
+async def download_youtube(request: YouTubeDownloadRequest):
+    """
+    Download audio/video from YouTube URL
+
+    - type=audio: Download as MP3 (for translation input)
+    - type=video: Download video-only MP4 (Mac-compatible)
+    - type=both: Download both audio and video
+    """
+    job_id = str(uuid.uuid4())
+
+    try:
+        if request.type == "audio":
+            result = await youtube_service.download_audio(request.url, job_id)
+            if result.success:
+                return {
+                    "job_id": job_id,
+                    "status": "completed",
+                    "type": "audio",
+                    "file_path": result.file_path,
+                    "message": "Audio downloaded successfully"
+                }
+            else:
+                raise HTTPException(status_code=500, detail=result.error)
+
+        elif request.type == "video":
+            result = await youtube_service.download_video(request.url, job_id, request.format_id)
+            if result.success:
+                return {
+                    "job_id": job_id,
+                    "status": "completed",
+                    "type": "video",
+                    "file_path": result.file_path,
+                    "format_id": result.format_id,
+                    "format_note": result.format_note,
+                    "message": "Video downloaded successfully"
+                }
+            else:
+                raise HTTPException(status_code=500, detail=result.error)
+
+        elif request.type == "both":
+            results = await youtube_service.download_both(request.url, job_id)
+            return {
+                "job_id": job_id,
+                "status": "completed",
+                "type": "both",
+                "audio": {
+                    "success": results["audio"].success,
+                    "file_path": results["audio"].file_path,
+                    "error": results["audio"].error
+                },
+                "video": {
+                    "success": results["video"].success,
+                    "file_path": results["video"].file_path,
+                    "format_id": results["video"].format_id,
+                    "format_note": results["video"].format_note,
+                    "error": results["video"].error
+                },
+                "message": "Download completed"
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Invalid type. Use: audio, video, or both")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"YouTube download error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/youtube/formats")
+async def list_youtube_formats(url: str):
+    """List all available formats for a YouTube URL"""
+    try:
+        formats = await youtube_service.list_formats(url)
+        return {
+            "url": url,
+            "formats": formats
+        }
+    except Exception as e:
+        logger.error(f"Error listing formats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+def cleanup_youtube_download(job_dir: str, file_path: str):
+    """Clean up YouTube download files after user downloads them (with 5-min delay)"""
+    import shutil
+    import time
+
+    # Wait 5 minutes before deleting, giving user time to retry if download failed
+    logger.info(f"Scheduled cleanup for {file_path} in 5 minutes")
+    time.sleep(300)  # 5 minutes
+
+    try:
+        # Delete the specific file first
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            logger.info(f"Deleted YouTube file: {file_path}")
+
+        # If directory is empty, remove it too
+        if os.path.exists(job_dir) and not os.listdir(job_dir):
+            shutil.rmtree(job_dir)
+            logger.info(f"Deleted empty YouTube job directory: {job_dir}")
+    except Exception as e:
+        logger.error(f"Error cleaning up YouTube download: {e}")
+
+@app.get("/youtube/download/{job_id}/{file_type}")
+async def get_youtube_file(job_id: str, file_type: str, background_tasks: BackgroundTasks):
+    """
+    Download a previously downloaded YouTube file
+    File is deleted from server after download completes.
+
+    file_type: audio or video
+    """
+    downloads_dir = "/app/downloads"
+    job_dir = os.path.join(downloads_dir, job_id)
+
+    if file_type == "audio":
+        # Check common audio extensions
+        for ext in ["mp3", "m4a", "wav", "opus", "webm"]:
+            file_path = os.path.join(job_dir, f"audio.{ext}")
+            if os.path.exists(file_path):
+                # Schedule cleanup after response is sent
+                background_tasks.add_task(cleanup_youtube_download, job_dir, file_path)
+                return FileResponse(
+                    file_path,
+                    media_type="audio/mpeg",
+                    filename=f"youtube_audio_{job_id}.{ext}"
+                )
+    elif file_type == "video":
+        # Check common video extensions
+        for ext in ["mp4", "webm", "mkv"]:
+            file_path = os.path.join(job_dir, f"video.{ext}")
+            if os.path.exists(file_path):
+                # Schedule cleanup after response is sent
+                background_tasks.add_task(cleanup_youtube_download, job_dir, file_path)
+                return FileResponse(
+                    file_path,
+                    media_type="video/mp4",
+                    filename=f"youtube_video_{job_id}.{ext}"
+                )
+
+    raise HTTPException(status_code=404, detail=f"File not found: {file_type}")
 
 if __name__ == "__main__":
     import uvicorn

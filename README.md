@@ -753,3 +753,9 @@ This project is licensed under the MIT License.
 **🚀 Built with Module Federation, React 18, Spring Boot, and Docker**
 
 *Enterprise-ready micro-frontend architecture for scalable web applications*
+
+
+
+## 🤝 Example comverting audio mp3 to mp4 with image
+ % ffmpeg -loop 1 -r 1 -i image.jpg -i Chapter2-jp.mp3 -c:v libx264 -tune stillimage -vf "scale=1280:trunc(ow/a/2)*2,format=yuv420p" -r 25 -c:a aac -b:a 192k -shortest -pix_fmt yuv420p output_stable2.mp4
+
