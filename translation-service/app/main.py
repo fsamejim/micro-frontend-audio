@@ -931,8 +931,9 @@ async def retry_job(job_id: str, background_tasks: BackgroundTasks):
 
     job = jobs_storage[job_id]
     
-    # Only allow retry for failed jobs (any failure status)
-    failed_status_values = [
+    # Allow retry for failed jobs or orphaned UPLOADED jobs (processing interrupted by restart)
+    retryable_status_values = [
+        "UPLOADED",  # Orphaned jobs where processing never started or was interrupted
         "FAILED",
         "FAILED_PREPROCESSING_AUDIO",
         "FAILED_TRANSCRIBING_SOURCE",
@@ -944,7 +945,7 @@ async def retry_job(job_id: str, background_tasks: BackgroundTasks):
     ]
 
     current_status = get_status_value(job.status)
-    if current_status not in failed_status_values:
+    if current_status not in retryable_status_values:
         raise HTTPException(status_code=400, detail=f"Cannot retry job with status: {current_status}")
     
     # Reset error state
