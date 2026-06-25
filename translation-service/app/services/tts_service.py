@@ -816,6 +816,85 @@ class TTSService:
             logger.error(f"Custom audio generation failed: {e}")
             raise Exception(f"Custom audio generation failed: {str(e)}")
 
+    def _smart_split_for_tts(self, text: str, language_code: str, max_bytes: int = 150) -> List[str]:
+        """
+        Smart split for adaptive retry when TTS rejects long sentences.
+
+        Strategy:
+        1. Find all comma positions
+        2. Greedily group fragments so each chunk stays under max_bytes
+        3. If no commas or a fragment is still too long, fall back to character split
+
+        This avoids creating many tiny chunks or leaving one chunk still too long.
+        """
+        if language_code == "ja":
+            # Split on Japanese comma, keeping the comma with the preceding text
+            fragments = re.split(r'(?<=、)', text)
+        else:
+            # Split on English comma + space
+            fragments = re.split(r'(?<=,)\s*', text)
+
+        fragments = [f.strip() for f in fragments if f.strip()]
+
+        # If only one fragment (no commas), try character-based split
+        if len(fragments) == 1:
+            return self._split_by_characters(text, max_bytes)
+
+        # Greedily combine fragments into balanced chunks
+        chunks = []
+        current_chunk = ""
+
+        for fragment in fragments:
+            fragment_bytes = len(fragment.encode('utf-8'))
+
+            # If single fragment exceeds max_bytes, split it by characters
+            if fragment_bytes > max_bytes:
+                # Save current chunk first
+                if current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = ""
+                # Split the oversized fragment
+                chunks.extend(self._split_by_characters(fragment, max_bytes))
+                continue
+
+            # Check if adding this fragment would exceed max_bytes
+            test_chunk = current_chunk + fragment
+            if len(test_chunk.encode('utf-8')) > max_bytes:
+                # Save current chunk and start new one
+                if current_chunk:
+                    chunks.append(current_chunk)
+                current_chunk = fragment
+            else:
+                current_chunk = test_chunk
+
+        # Don't forget the last chunk
+        if current_chunk:
+            chunks.append(current_chunk)
+
+        return chunks
+
+    def _split_by_characters(self, text: str, max_bytes: int = 150) -> List[str]:
+        """
+        Last-resort split by characters when no comma boundaries available.
+        Tries to split at natural boundaries (spaces, punctuation) when possible.
+        """
+        chunks = []
+        current_chunk = ""
+
+        for char in text:
+            test_chunk = current_chunk + char
+            if len(test_chunk.encode('utf-8')) > max_bytes:
+                if current_chunk:
+                    chunks.append(current_chunk)
+                current_chunk = char
+            else:
+                current_chunk = test_chunk
+
+        if current_chunk:
+            chunks.append(current_chunk)
+
+        return chunks
+
     async def _generate_custom_audio_chunk(
         self,
         text: str,
@@ -899,7 +978,44 @@ class TTSService:
                 return
 
             except Exception as e:
+                error_str = str(e)
                 logger.error(f"TTS attempt {attempt + 1}/{max_retries} failed for voice {voice_name}: {e}")
+
+                # Check if this is a "sentence too long" error - try adaptive splitting
+                if "sentence" in error_str.lower() and "too long" in error_str.lower():
+                    logger.warning(f"Detected 'sentence too long' error - attempting smart adaptive split")
+
+                    # Smart split: balanced chunks under 150 bytes, with character fallback
+                    sub_chunks = self._smart_split_for_tts(text, language_code[:2] if language_code else "ja")
+
+                    if len(sub_chunks) > 1:
+                        logger.info(f"Adaptive split: breaking into {len(sub_chunks)} sub-chunks")
+                        try:
+                            sub_chunk_files = []
+                            for idx, sub_text in enumerate(sub_chunks):
+                                sub_file = output_file.replace('.mp3', f'_adaptive_{idx+1}.mp3')
+                                # Recursive call for each sub-chunk (will use same retry logic)
+                                await self._generate_custom_audio_chunk(
+                                    sub_text, voice_name, sub_file,
+                                    language_code, speaking_rate
+                                )
+                                sub_chunk_files.append(sub_file)
+
+                            # Merge sub-chunks into final output
+                            await self._merge_audio_files(sub_chunk_files, output_file)
+
+                            # Clean up temporary sub-chunk files
+                            for sub_file in sub_chunk_files:
+                                if os.path.exists(sub_file):
+                                    os.remove(sub_file)
+
+                            logger.info(f"✅ Adaptive split successful: {os.path.basename(output_file)}")
+                            return
+                        except Exception as adaptive_error:
+                            logger.error(f"Adaptive split retry also failed: {adaptive_error}")
+                            # Fall through to normal retry logic
+                    else:
+                        logger.warning(f"Cannot split further (only 1 fragment), will continue with normal retry")
 
                 # On second attempt, try with default speaking rate (some voices don't support custom rates)
                 if attempt == 0 and current_rate != 1.0 and not is_legacy_voice:
