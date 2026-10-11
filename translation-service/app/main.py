@@ -574,7 +574,7 @@ async def get_job_speakers(job_id: str):
             content = f.read()
 
         # Extract unique speakers from transcript
-        speaker_pattern = r'^(Speaker [A-E]):'
+        speaker_pattern = r'^(Speaker [A-Z]):'
         speakers = set()
         for line in content.split('\n'):
             match = re.match(speaker_pattern, line)
@@ -670,7 +670,7 @@ async def regenerate_audio(job_id: str, request: RegenerateAudioRequest, backgro
                 )
             # Check for at least one speaker line
             import re
-            if not re.search(r'^Speaker [A-E]:', content, re.MULTILINE):
+            if not re.search(r'^Speaker [A-Z]:', content, re.MULTILINE):
                 raise HTTPException(
                     status_code=400,
                     detail=f"{transcript_type.capitalize()} transcript file has no valid speaker lines. Please run a new translation."
@@ -1069,7 +1069,7 @@ async def process_translation_job(job_id: str, is_retry: bool = False):
 
                 # Check if text has speaker labels, if not add a default one
                 import re
-                has_speaker_labels = bool(re.search(r'^Speaker [A-E]:', source_text, re.MULTILINE))
+                has_speaker_labels = bool(re.search(r'^Speaker [A-Z]:', source_text, re.MULTILINE))
 
                 if not has_speaker_labels:
                     # Wrap entire text as Speaker A

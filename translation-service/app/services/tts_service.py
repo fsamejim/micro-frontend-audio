@@ -225,7 +225,7 @@ class TTSService:
             line = line.strip()
 
             # Check if this is a new speaker line
-            speaker_match = re.match(r'^(Speaker [A-E]):\s*(.*)$', line)
+            speaker_match = re.match(r'^(Speaker [A-Z]):\s*(.*)$', line)
             if speaker_match:
                 # Save previous speaker's content if any
                 if current_speaker and current_text_parts:

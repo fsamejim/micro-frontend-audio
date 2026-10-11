@@ -190,9 +190,9 @@ class TextCleaningService:
         for line in lines:
             line = line.strip()
             
-            if re.match(r'^Speaker [A-E]:', line):
+            if re.match(r'^Speaker [A-Z]:', line):
                 # Ensure consistent spacing after colon
-                line = re.sub(r'^(Speaker [A-E]):\s*', r'\1: ', line)
+                line = re.sub(r'^(Speaker [A-Z]):\s*', r'\1: ', line)
                 
                 # Remove empty speaker lines
                 text_part = line.split(':', 1)[1].strip()
@@ -283,7 +283,7 @@ class TextCleaningService:
                 continue
             
             # Check if this is a speaker line
-            speaker_match = re.match(r'^(Speaker [A-E]):', line)
+            speaker_match = re.match(r'^(Speaker [A-Z]):', line)
             
             if speaker_match:
                 new_speaker = speaker_match.group(1)
@@ -322,7 +322,7 @@ class TextCleaningService:
         for line in lines:
             if line.strip():
                 # Clean whitespace within line but preserve structure
-                if re.match(r'^Speaker [A-E]:', line):
+                if re.match(r'^Speaker [A-Z]:', line):
                     parts = line.split(':', 1)
                     if len(parts) == 2:
                         speaker_part = parts[0].strip()
@@ -346,12 +346,12 @@ class TextCleaningService:
         
         lines = content.split('\n')
         non_empty_lines = [line for line in lines if line.strip()]
-        speaker_lines = [line for line in lines if re.match(r'^Speaker [A-E]:', line)]
+        speaker_lines = [line for line in lines if re.match(r'^Speaker [A-Z]:', line)]
         
         # Count speakers
         speakers = set()
         for line in speaker_lines:
-            match = re.match(r'^(Speaker [A-E]):', line)
+            match = re.match(r'^(Speaker [A-Z]):', line)
             if match:
                 speakers.add(match.group(1))
         
@@ -385,7 +385,7 @@ class TextCleaningService:
                 issues.append("Chunk markers still present")
             
             # Check for speaker lines
-            speaker_lines = re.findall(r'^Speaker [A-E]:', content, re.MULTILINE)
+            speaker_lines = re.findall(r'^Speaker [A-Z]:', content, re.MULTILINE)
             if len(speaker_lines) == 0:
                 issues.append("No speaker lines found")
             

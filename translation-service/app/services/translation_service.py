@@ -183,7 +183,7 @@ class TranslationService:
         """Enhanced speaker label normalization (matching base code logic)"""
         
         # First, fix double colons that might already exist
-        content = re.sub(r'(Speaker\s+[A-E]):\s*:\s*', r'\1: ', content)
+        content = re.sub(r'(Speaker\s+[A-Z]):\s*:\s*', r'\1: ', content)
         
         # Then fix common Japanese translations and format issues (from base code)
         for speaker in self.speaker_ids:
@@ -204,8 +204,8 @@ class TranslationService:
                 content = re.sub(pattern, replacement, content, flags=re.IGNORECASE)
         
         # Finally ensure all speaker labels have proper format
-        content = re.sub(r'(Speaker\s+[A-E])(?!\s*:)', r'\1:', content)  # Add colon if missing
-        content = re.sub(r'(Speaker\s+[A-E]):\s*', r'\1: ', content)     # Ensure single space after colon
+        content = re.sub(r'(Speaker\s+[A-Z])(?!\s*:)', r'\1:', content)  # Add colon if missing
+        content = re.sub(r'(Speaker\s+[A-Z]):\s*', r'\1: ', content)     # Ensure single space after colon
         
         return content
     
@@ -279,7 +279,7 @@ class TranslationService:
     
     def _is_speaker_line(self, line: str) -> bool:
         """Check if line starts with speaker label"""
-        return bool(re.match(r'^Speaker [A-E]:', line.strip()))
+        return bool(re.match(r'^Speaker [A-Z]:', line.strip()))
     
     def _split_long_block(self, block_lines: List[str], max_chars: int) -> List[str]:
         """Split long speaker blocks at sentence boundaries"""
@@ -287,7 +287,7 @@ class TranslationService:
             return []
         
         # Extract speaker label from first line
-        header_match = re.match(r'^(Speaker [A-E]:)', block_lines[0].strip())
+        header_match = re.match(r'^(Speaker [A-Z]:)', block_lines[0].strip())
         speaker_label = header_match.group(1) if header_match else "Speaker A:"
         
         # Join all content
@@ -332,7 +332,7 @@ class TranslationService:
                 
             if self._is_speaker_line(line):
                 # Extract speaker from line
-                speaker_match = re.match(r'^(Speaker [A-E]):', line.strip())
+                speaker_match = re.match(r'^(Speaker [A-Z]):', line.strip())
                 if speaker_match:
                     speaker = speaker_match.group(1)
                     line_content = line[len(speaker)+1:].strip()  # Content after "Speaker X:"

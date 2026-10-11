@@ -68,7 +68,7 @@ class ChunkMergingService:
                         last_speaker = None
                         for line in chunk_lines:
                             # Check for speaker change
-                            match = re.match(r'^(Speaker [A-E]):', line.strip())
+                            match = re.match(r'^(Speaker [A-Z]):', line.strip())
                             if match:
                                 speaker = match.group(1)
                                 # Add double line break between different speakers
@@ -145,10 +145,10 @@ class ChunkMergingService:
                 continue
             
             # Clean up speaker lines
-            if re.match(r'^Speaker [A-E]:', line):
+            if re.match(r'^Speaker [A-Z]:', line):
                 # Fix double colons first, then ensure consistent formatting
-                line = re.sub(r'^(Speaker\s+[A-E]):\s*:\s*', r'\1: ', line)  # Fix double colons
-                line = re.sub(r'^(Speaker\s+[A-E]):\s*', r'\1: ', line)      # Ensure single space
+                line = re.sub(r'^(Speaker\s+[A-Z]):\s*:\s*', r'\1: ', line)  # Fix double colons
+                line = re.sub(r'^(Speaker\s+[A-Z]):\s*', r'\1: ', line)      # Ensure single space
                 cleaned_lines.append(line)
             elif line.strip():
                 # Non-empty line that's not a speaker line
@@ -179,13 +179,13 @@ class ChunkMergingService:
             
             # Count different elements
             chunk_markers = len(re.findall(r'=== TRANSLATION CHUNK', content))
-            speaker_lines = len([line for line in lines if re.match(r'^Speaker [A-E]:', line)])
+            speaker_lines = len([line for line in lines if re.match(r'^Speaker [A-Z]:', line)])
             total_lines = len([line for line in lines if line.strip()])
             
             # Count speakers
             speakers = set()
             for line in lines:
-                match = re.match(r'^(Speaker [A-E]):', line)
+                match = re.match(r'^(Speaker [A-Z]):', line)
                 if match:
                     speakers.add(match.group(1))
             
@@ -224,7 +224,7 @@ class ChunkMergingService:
             
             # Check for speaker consistency
             lines = content.split('\n')
-            speaker_lines = [line for line in lines if re.match(r'^Speaker [A-E]:', line)]
+            speaker_lines = [line for line in lines if re.match(r'^Speaker [A-Z]:', line)]
             
             if len(speaker_lines) == 0:
                 issues.append("No speaker lines found")
